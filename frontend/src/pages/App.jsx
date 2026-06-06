@@ -171,6 +171,7 @@ export default function App() {
   }, [fileData, previewData, status, loaderDone, setupReveal])
 
   /* ── Active section IntersectionObserver ── */
+  /* Re-runs whenever a new section mounts (fileData / jobId / status change) */
   useEffect(() => {
     if (!loaderDone) return
     const obs = new IntersectionObserver((entries) => {
@@ -183,7 +184,7 @@ export default function App() {
     }, { threshold: 0.4 })
     SECTION_IDS.forEach(id => { const el = document.getElementById(id); if (el) obs.observe(el) })
     return () => obs.disconnect()
-  }, [loaderDone])
+  }, [loaderDone, fileData, jobId, status])
 
   /* ── Scroll helper ── */
   const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
@@ -202,7 +203,8 @@ export default function App() {
     try {
       const res = await startCleaning(fileData.file_id, config)
       startJob(res.job_id)
-      scrollTo('section-clean')
+      // Delay scroll so React renders section-clean into DOM first
+      setTimeout(() => scrollTo('section-clean'), 120)
     } catch (err) {
       setCleanError(err?.response?.data?.detail || err.message || 'Failed to start')
     } finally {
@@ -447,10 +449,10 @@ export default function App() {
       </section>
 
       {/* ════════════════════════════════════════════════
-          PHASE 4 — CONFIGURE
+          PHASE 4 — CONFIGURE (unlocks after file upload)
       ════════════════════════════════════════════════ */}
-      <section id="section-configure" className="full-section">
-        {!fileData && <LockOverlay message="↑ Upload a file first" />}
+      {fileData && (
+      <section id="section-configure" className="full-section section-enter">
         <div className="section-bg-num">02</div>
         <div className="section-body">
           <span className="section-tag reveal-left">OPERATIONS</span>
@@ -480,12 +482,13 @@ export default function App() {
         </div>
         <div className="section-rule" />
       </section>
+      )}
 
       {/* ════════════════════════════════════════════════
-          PHASE 5 — CLEAN
+          PHASE 5 — CLEAN (unlocks after pipeline starts)
       ════════════════════════════════════════════════ */}
-      <section id="section-clean" className="full-section">
-        {!jobId && <LockOverlay message="↑ Configure and run the pipeline first" />}
+      {jobId && (
+      <section id="section-clean" className="full-section section-enter">
         <div className="section-bg-num">03</div>
         <div className="section-body">
           <span className="section-tag reveal-left">PROCESSING</span>
@@ -540,12 +543,13 @@ export default function App() {
         </div>
         <div className="section-rule" />
       </section>
+      )}
 
       {/* ════════════════════════════════════════════════
-          PHASE 6 — EXPORT
+          PHASE 6 — EXPORT (unlocks when pipeline complete)
       ════════════════════════════════════════════════ */}
-      <section id="section-export" className="full-section" style={{ minHeight: '100vh', alignItems: 'flex-start' }}>
-        {status !== 'done' && <LockOverlay message="↑ Complete the cleaning pipeline first" />}
+      {status === 'done' && (
+      <section id="section-export" className="full-section section-enter" style={{ minHeight: '100vh', alignItems: 'flex-start' }}>
         <div className="section-bg-num">04</div>
         <div className="section-body" style={{ paddingBottom: 100 }}>
           <span className="section-tag reveal-left">EXPORT</span>
@@ -588,6 +592,7 @@ export default function App() {
           </button>
         </div>
       </section>
+      )}
 
       {/* ════════════════════════════════════════════════
           PHASE 7 — FOOTER
