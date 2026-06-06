@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 // Visual components (no GSAP)
 import Loader        from '../components/Loader'
 import SplashCursor   from '../components/SplashCursor'
-import PurixaLogo    from '../components/PurixaLogo'
+import HeroCrystal   from '../components/HeroCrystal'
 
 // Functional components (logic unchanged)
 import DropZone        from '../components/DropZone'
@@ -290,8 +290,8 @@ export default function App() {
         <div className="green-shape tri-shape" style={{ bottom: '22%', left: '-6px' }} />
         <div className="green-shape diamond-shape" style={{ top: '30%', right: '42%' }} />
 
-        {/* Animated Purixa logo mark */}
-        <PurixaLogo />
+        {/* Emerald crystal hero asset */}
+        <HeroCrystal />
 
         {/* Hero copy — CSS animations trigger via .app-ready class */}
         <div className="hero-content">
