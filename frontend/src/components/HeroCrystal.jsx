@@ -1,16 +1,16 @@
 import { useEffect, useRef } from 'react'
-import crystalImg from '../assets/crystal.jpg'
+import crystalImg from '../assets/crystal.png'
 
 /* ─────────────────────────────────────────────────
-   Motion constants — tuned for premium agency feel
+   Motion constants
 ───────────────────────────────────────────────── */
-const LERP          = 0.04    // mouse inertia (lower = dreamier)
-const FLOAT_AMP     = 15      // ±px vertical drift
-const FLOAT_PERIOD  = 8000    // ms per float cycle (~8 seconds)
-const ROT_Z_SPEED   = 2.0     // °/s on Z axis — one revolution per 180 seconds
-const TILT_MAX      = 12      // max ±° for rotateX/Y from mouse
-const PARALLAX_X    = 52      // px horizontal parallax
-const PARALLAX_Y    = 36      // px vertical parallax
+const LERP          = 0.04
+const FLOAT_AMP     = 15
+const FLOAT_PERIOD  = 8000   // ms
+const ROT_Z_SPEED   = 2.0    // °/s — one rev per 180s
+const TILT_MAX      = 12     // max ±° rotateX/Y from mouse
+const PARALLAX_X    = 52
+const PARALLAX_Y    = 36
 
 export default function HeroCrystal() {
   const innerRef = useRef(null)
@@ -18,10 +18,8 @@ export default function HeroCrystal() {
   useEffect(() => {
     let raf
     let rotZ = 0
-
-    // Normalized mouse: center of screen = (0, 0)
-    let tMX = 0, tMY = 0   // target
-    let cMX = 0, cMY = 0   // current (lerped)
+    let tMX = 0, tMY = 0
+    let cMX = 0, cMY = 0
     let last = performance.now()
 
     const onMouse = (e) => {
@@ -34,29 +32,21 @@ export default function HeroCrystal() {
       const dt = Math.min((now - last) / 1000, 0.05)
       last = now
 
-      // Mouse inertia
       cMX += (tMX - cMX) * LERP
       cMY += (tMY - cMY) * LERP
 
-      // Very slow Z rotation — barely perceptible, organic
       rotZ += dt * ROT_Z_SPEED
 
-      // Vertical float
-      const floatY = Math.sin((now / FLOAT_PERIOD) * Math.PI * 2) * FLOAT_AMP
-
-      // Scroll influence
+      const floatY      = Math.sin((now / FLOAT_PERIOD) * Math.PI * 2) * FLOAT_AMP
       const scroll      = window.scrollY
-      const scrollTY    = scroll * 0.12                     // rises on scroll
-      const scrollTiltX = Math.min(scroll * 0.012, 16)     // leans back
-      const scrollScale = Math.max(0.78, 1 - scroll * 0.00025) // shrinks slightly
+      const scrollTY    = scroll * 0.12
+      const scrollTiltX = Math.min(scroll * 0.012, 16)
+      const scrollScale = Math.max(0.78, 1 - scroll * 0.00025)
 
-      // 3D tilt from mouse — creates floating-in-space illusion
-      const tiltX = -cMY * TILT_MAX  // mouse up → lean forward
-      const tiltY =  cMX * TILT_MAX  // mouse right → lean right
-
-      // Translation parallax
-      const tx = cMX * PARALLAX_X
-      const ty = cMY * PARALLAX_Y + floatY - scrollTY
+      const tiltX = -cMY * TILT_MAX
+      const tiltY =  cMX * TILT_MAX
+      const tx    = cMX * PARALLAX_X
+      const ty    = cMY * PARALLAX_Y + floatY - scrollTY
 
       if (innerRef.current) {
         innerRef.current.style.transform = [
@@ -72,7 +62,6 @@ export default function HeroCrystal() {
     }
 
     raf = requestAnimationFrame(tick)
-
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('mousemove', onMouse)
@@ -80,22 +69,20 @@ export default function HeroCrystal() {
   }, [])
 
   return (
-    /* Outer container — same position as DataWireframe / PurixaLogo */
     <div
       style={{
-        position:        'absolute',
+        position:          'absolute',
         top: 0, right: 0, bottom: 0,
-        width:           '56%',
-        pointerEvents:   'none',
-        display:         'flex',
-        alignItems:      'center',
-        justifyContent:  'center',
-        perspective:     '900px',
+        width:             '56%',
+        pointerEvents:     'none',
+        display:           'flex',
+        alignItems:        'center',
+        justifyContent:    'center',
+        perspective:       '900px',
         perspectiveOrigin: '50% 50%',
-        overflow:        'hidden',
+        overflow:          'hidden',
       }}
     >
-      {/* Inner — receives all transform animations */}
       <div
         ref={innerRef}
         style={{
@@ -108,36 +95,39 @@ export default function HeroCrystal() {
         }}
         aria-hidden="true"
       >
-        {/* Ambient green glow — radiates behind the crystal */}
+        {/*
+          Subtle green ambient glow — very soft, reads as depth not decoration.
+          Sized to crystal and slightly offset toward its center of mass.
+        */}
         <div
           style={{
             position:   'absolute',
-            inset:      '-15%',
-            background: 'radial-gradient(ellipse 70% 70% at 52% 54%, rgba(77,224,105,0.22) 0%, transparent 70%)',
-            filter:     'blur(28px)',
+            inset:      '10%',
+            background: 'radial-gradient(ellipse 65% 65% at 52% 55%, rgba(77,224,105,0.14) 0%, transparent 75%)',
+            filter:     'blur(22px)',
             pointerEvents: 'none',
             zIndex:     0,
           }}
         />
 
-        {/* Crystal image — exact asset, no redrawing */}
+        {/*
+          Crystal image — white-bg studio render.
+          mix-blend-mode: multiply → white pixels in the image become
+          transparent (white × hero-gray = hero-gray), so the crystal
+          appears floating on the page with no visible bounding box.
+        */}
         <img
           src={crystalImg}
           alt="Purixa emerald crystal"
           draggable={false}
           style={{
-            position:   'relative',
-            zIndex:     1,
-            width:      'clamp(320px, 44vw, 600px)',
-            height:     'auto',
-            display:    'block',
-            userSelect: 'none',
-            /*
-              Radial mask: fades the dark bg of the image into the hero's
-              gray background, preserving the crystal's reflections & glow.
-            */
-            WebkitMaskImage: 'radial-gradient(ellipse 76% 76% at 52% 54%, black 40%, transparent 100%)',
-            maskImage:       'radial-gradient(ellipse 76% 76% at 52% 54%, black 40%, transparent 100%)',
+            position:    'relative',
+            zIndex:      1,
+            width:       'clamp(320px, 44vw, 600px)',
+            height:      'auto',
+            display:     'block',
+            userSelect:  'none',
+            mixBlendMode: 'multiply',   /* white bg → transparent on gray hero */
           }}
         />
       </div>
