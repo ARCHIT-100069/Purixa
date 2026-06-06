@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 
 // Visual components (no GSAP)
 import Loader        from '../components/Loader'
-import CustomCursor  from '../components/CustomCursor'
+import SplashCursor   from '../components/SplashCursor'
 import DataWireframe from '../components/DataWireframe'
 
 // Functional components (logic unchanged)
@@ -250,8 +250,16 @@ export default function App() {
       {/* ── Loader ── */}
       {!loaderDone && <Loader onComplete={() => setLoaderDone(true)} />}
 
-      {/* ── Cursor ── */}
-      <CustomCursor />
+      {/* ── SplashCursor ── */}
+      <SplashCursor
+        RAINBOW_MODE={false}
+        COLOR="#4DE069"
+        TRANSPARENT={true}
+        DENSITY_DISSIPATION={3.5}
+        VELOCITY_DISSIPATION={2}
+        SPLAT_RADIUS={0.2}
+        CURL={3}
+      />
 
 
 
@@ -288,8 +296,9 @@ export default function App() {
         {/* Hero copy — CSS animations trigger via .app-ready class */}
         <div className="hero-content">
           <div className="hero-headline-block">
-            <span className="hero-line-1 headline-solid">YOUR DATA.</span>
-            <span className="hero-line-2 headline-outline">CLEANED.</span>
+            <span className="hero-line-1 headline-solid">PURIFY.</span>
+            <span className="hero-line-2 headline-solid">PROCESS.</span>
+            <span className="hero-line-3 headline-outline">PERFORM.</span>
           </div>
           <p className="hero-subtitle hero-sub">
             Upload. Configure. Export. Done.

@@ -37,6 +37,8 @@ body {
   margin: 0;
   padding: 0;
 }
+/* Hide default cursor everywhere — SplashCursor replaces it */
+*, *::before, *::after { cursor: none !important; }
 @media (min-width: 768px) {
   html, body, a, button, [role="button"] { cursor: none !important; }
 }
@@ -133,6 +135,7 @@ body {
 /* Default: no animation until app-ready */
 .hero-line-1,
 .hero-line-2,
+.hero-line-3,
 .hero-subtitle,
 .scroll-indicator { opacity: 0; }
 
@@ -140,13 +143,16 @@ body {
   animation: slideUp .9s cubic-bezier(.16,1,.3,1) .1s forwards;
 }
 .app-ready .hero-line-2 {
-  animation: slideUp .9s cubic-bezier(.16,1,.3,1) .3s forwards;
+  animation: slideUp .9s cubic-bezier(.16,1,.3,1) .25s forwards;
+}
+.app-ready .hero-line-3 {
+  animation: slideUp .9s cubic-bezier(.16,1,.3,1) .4s forwards;
 }
 .app-ready .hero-subtitle {
-  animation: fadeInUp .7s ease .55s forwards;
+  animation: fadeInUp .7s ease .65s forwards;
 }
 .app-ready .scroll-indicator {
-  animation: fadeIn .5s ease .9s forwards, pulseBounce 1.8s ease-in-out 1.5s infinite;
+  animation: fadeIn .5s ease 1.0s forwards, pulseBounce 1.8s ease-in-out 1.7s infinite;
 }
 
 /* ═══════════════════════════════════════════════════
