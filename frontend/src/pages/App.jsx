@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 // Visual components (no GSAP)
 import Loader        from '../components/Loader'
 import SplashCursor   from '../components/SplashCursor'
-import DataWireframe from '../components/DataWireframe'
+import PurixaLogo    from '../components/PurixaLogo'
 
 // Functional components (logic unchanged)
 import DropZone        from '../components/DropZone'
@@ -290,8 +290,8 @@ export default function App() {
         <div className="green-shape tri-shape" style={{ bottom: '22%', left: '-6px' }} />
         <div className="green-shape diamond-shape" style={{ top: '30%', right: '42%' }} />
 
-        {/* Animated wireframe canvas */}
-        <DataWireframe />
+        {/* Animated Purixa logo mark */}
+        <PurixaLogo />
 
         {/* Hero copy — CSS animations trigger via .app-ready class */}
         <div className="hero-content">
