@@ -24,13 +24,18 @@
    RESET
 ═══════════════════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: auto; /* JS controls all scrolling — prevents browser jumping to saved position */
+}
 body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  overflow-y: auto; /* must allow vertical scroll */
+  margin: 0;
+  padding: 0;
 }
 @media (min-width: 768px) {
   html, body, a, button, [role="button"] { cursor: none !important; }

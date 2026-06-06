@@ -148,6 +148,13 @@ export default function App() {
   const { jobId, status, progress, log, stats, error, startJob, reset } = useCleaningJob()
   const lastLog = log[log.length - 1] || ''
 
+  /* ── Force top of page on every mount ── */
+  useEffect(() => {
+    // Disable browser scroll-restoration so it never jumps to a saved position
+    if (typeof history !== 'undefined') history.scrollRestoration = 'manual'
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }, [])
+
   /* ── Reveal IntersectionObserver ── */
   const setupReveal = useCallback(() => {
     const obs = new IntersectionObserver((entries) => {
