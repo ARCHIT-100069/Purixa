@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import gsap from 'gsap'
 
 export default function CustomCursor() {
   const cursorRef = useRef(null)
@@ -31,15 +30,15 @@ export default function CustomCursor() {
 
     const onEnterInteractive = (e) => {
       const el = e.target
-      if (el.matches('a, button, [role="button"], .hero-cta, .mantis-cta')) {
-        const isCta = el.matches('.hero-cta, .mantis-cta, .btn-primary')
-        cursor.classList.toggle('is-cta', isCta)
-        cursor.classList.toggle('is-hovering', !isCta)
+      if (el.matches('a, button, [role="button"], .hero-cta, .pill-cta')) {
+        const isCta = el.matches('.hero-cta, .pill-cta-solid, .btn-primary')
+        cursor.classList.toggle('on-cta', isCta)
+        cursor.classList.toggle('hovering', !isCta)
       }
     }
 
     const onLeaveInteractive = () => {
-      cursor.classList.remove('is-hovering', 'is-cta')
+      cursor.classList.remove('hovering', 'on-cta')
     }
 
     window.addEventListener('mousemove', onMouseMove)

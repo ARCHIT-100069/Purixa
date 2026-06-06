@@ -1,66 +1,85 @@
-import { useEffect, useRef } from 'react'
-import gsap from 'gsap'
+import { useState, useEffect, useRef } from 'react'
 
 export default function Loader({ onComplete }) {
-  const overlayRef = useRef(null)
-  const fillRef = useRef(null)
-  const percentRef = useRef(null)
-  const wordmarkRef = useRef(null)
+  const [pct, setPct]     = useState(0)
+  const [exiting, setExiting] = useState(false)
+  const doneRef = useRef(false)
 
   useEffect(() => {
-    const obj = { val: 0 }
-    const tl = gsap.timeline({
-      onComplete: () => {
-        // Slide loader up to reveal the page
-        gsap.to(overlayRef.current, {
-          yPercent: -100,
-          duration: 0.9,
-          ease: 'power3.inOut',
-          onComplete,
-        })
-      },
-    })
+    let current = 0
+    const id = setInterval(() => {
+      // Fast at first, slow toward the end
+      const step = current < 70 ? Math.random() * 4 + 2 : Math.random() * 1.2 + 0.4
+      current = Math.min(current + step, 100)
+      setPct(Math.floor(current))
 
-    tl
-      .to(fillRef.current, {
-        width: '100%',
-        duration: 1.8,
-        ease: 'power2.inOut',
-      })
-      .to(
-        obj,
-        {
-          val: 100,
-          duration: 1.8,
-          ease: 'power2.inOut',
-          onUpdate() {
-            if (percentRef.current) {
-              percentRef.current.textContent = `${Math.round(obj.val)}%`
-            }
-          },
-        },
-        '<'
-      )
-      .to(
-        wordmarkRef.current,
-        { opacity: 1, y: 0, duration: 0.5, ease: 'power2.out' },
-        '-=0.8'
-      )
-      .to({}, { duration: 0.4 }) // brief pause before exit
+      if (current >= 100 && !doneRef.current) {
+        doneRef.current = true
+        clearInterval(id)
+        // Brief pause at 100%, then slide out
+        setTimeout(() => {
+          setExiting(true)
+          setTimeout(onComplete, 850)
+        }, 380)
+      }
+    }, 28)
+    return () => clearInterval(id)
   }, [onComplete])
 
   return (
-    <div ref={overlayRef} className="loader-overlay">
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9990,
+        background: 'linear-gradient(140deg, #a8e8b0 0%, #c8c8c8 55%, #D8D8D8 100%)',
+        transform: exiting ? 'translateY(-100%)' : 'translateY(0)',
+        transition: exiting ? 'transform 0.85s cubic-bezier(0.76, 0, 0.24, 1)' : 'none',
+        overflow: 'hidden',
+      }}
+    >
       {/* Horizontal line track */}
-      <div className="loader-line-track">
-        <div ref={fillRef} className="loader-line-fill" />
+      <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: '1px', background: 'rgba(0,0,0,0.14)' }}>
+        <div
+          style={{
+            height: '100%',
+            width: `${pct}%`,
+            background: '#0A0A0A',
+            transition: 'width 0.12s linear',
+          }}
+        />
       </div>
 
-      {/* Percentage counter */}
-      <span ref={percentRef} className="loader-percent">0%</span>
+      {/* Percent counter */}
+      <span
+        style={{
+          position: 'absolute',
+          top: '50%',
+          right: 32,
+          transform: 'translateY(-18px)',
+          fontFamily: "'Space Mono', monospace",
+          fontSize: 11,
+          color: '#0A0A0A',
+          letterSpacing: '0.1em',
+        }}
+      >
+        {pct}%
+      </span>
 
-      {/* Wordmark */}
-      <div ref={wordmarkRef} className="loader-wordmark">
+      {/* Wordmark — fades in past 40% */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 32,
+          left: 32,
+          fontFamily: "'Bebas Neue', sans-serif",
+          fontSize: '2rem',
+          color: '#0A0A0A',
+          opacity: pct > 40 ? 1 : 0,
+          transform: pct > 40 ? 'translateY(0)' : 'translateY(10px)',
+          transition: 'opacity 0.5s ease, transform 0.5s ease',
+        }}
+      >
         Purixa
       </div>
     </div>
