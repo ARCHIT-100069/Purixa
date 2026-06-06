@@ -36,10 +36,12 @@ const ACCENT_SET = new Set(NODE_DEFS.flatMap((n, i) => n[3] ? [i] : []))
 function isAccentEdge(a, b) { return ACCENT_SET.has(a) && ACCENT_SET.has(b) }
 
 export default function DataWireframe() {
-  const canvasRef = useRef(null)
-  const mouseRef  = useRef({ x: -999, y: -999 })
-  const rafRef    = useRef(null)
+  const canvasRef  = useRef(null)
+  const mouseRef   = useRef({ x: -999, y: -999 })
+  const rafRef     = useRef(null)
+  const wrapperRef = useRef(null)   // ← new: receives scroll transforms
 
+  // ── Canvas + mouse animation (unchanged) ──────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -144,6 +146,37 @@ export default function DataWireframe() {
     }
   }, [])
 
+  // ── Scroll-driven transform ────────────────────────────────────────
+  useEffect(() => {
+    const handleScroll = () => {
+      const wrapper = wrapperRef.current
+      if (!wrapper) return
+
+      const scrollY    = window.scrollY
+      const heroHeight = window.innerHeight
+
+      // 0 at top of hero, 1 when hero fully scrolled past
+      const raw      = Math.min(scrollY / heroHeight, 1)
+      // Ease-out quadratic: fast start, slows near end (premium feel)
+      const progress = 1 - Math.pow(1 - raw, 2)
+
+      const rotate     = progress * 45           // 0 → 45°  clockwise
+      const scale      = 1 - progress * 0.25     // 1 → 0.75
+      const translateY = progress * -120          // drifts up 120px
+      const translateX = progress * 60            // drifts right 60px
+      const opacity    = 1 - progress * 0.85      // 1 → 0.15
+
+      wrapper.style.transform = `translateY(${translateY}px) translateX(${translateX}px) rotate(${rotate}deg) scale(${scale})`
+      wrapper.style.opacity   = opacity
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    // Run once immediately to sync with any initial scroll position
+    handleScroll()
+
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
   return (
     <div
       style={{
@@ -153,10 +186,23 @@ export default function DataWireframe() {
         pointerEvents: 'none',
       }}
     >
-      <canvas
-        ref={canvasRef}
-        style={{ display: 'block', opacity: 0.65 }}
-      />
+      {/* ── Scroll-animated wrapper ── */}
+      <div
+        ref={wrapperRef}
+        id="wireframe-wrapper"
+        style={{
+          width:           '100%',
+          height:          '100%',
+          transformOrigin: 'center center',
+          willChange:      'transform, opacity',
+          transition:      'transform 0.1s linear, opacity 0.1s linear',
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          style={{ display: 'block', opacity: 0.65 }}
+        />
+      </div>
     </div>
   )
 }
