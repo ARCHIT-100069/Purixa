@@ -1,14 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 // Visual components (no GSAP)
 import Loader        from '../components/Loader'
 import CustomCursor  from '../components/CustomCursor'
-import VerticalNav   from '../components/VerticalNav'
-import FloatingStats from '../components/FloatingStats'
 import DataWireframe from '../components/DataWireframe'
 
-// Functional components
+// Functional components (logic unchanged)
 import DropZone        from '../components/DropZone'
 import FileStats       from '../components/FileStats'
 import CleaningOptions from '../components/CleaningOptions'
@@ -21,8 +18,7 @@ import ExportPanel     from '../components/ExportPanel'
 import { useCleaningJob } from '../hooks/useCleaningJob'
 import { startCleaning, getPreview } from '../utils/api'
 
-// ── Constants ──────────────────────────────────────────────────
-
+/* ─── Constants ────────────────────────────────── */
 const DEFAULT_CONFIG = {
   remove_duplicates: true,
   handle_missing:    true,
@@ -32,65 +28,172 @@ const DEFAULT_CONFIG = {
   fix_formatting:    true,
 }
 
-// ── Transition presets (framer-motion) ────────────────────────
+const MARQUEE_TEXT = 'REMOVE DUPLICATES · FIX MISSING VALUES · NORMALIZE TEXT · REMOVE OUTLIERS · FIX FORMATTING · CLEAN DATA · '
+const FEATURE_CARDS = [
+  { num: '01', title: 'HANDLES 500MB', lines: ['Files up to 500MB processed', 'without freezing your browser.'] },
+  { num: '02', title: '6 CLEANING OPS', lines: ['Remove dupes · fix types ·', 'normalize · remove outliers.'] },
+  { num: '03', title: 'ZERO AI', lines: ['Pure pandas logic.', 'Deterministic. Fast. Free.'] },
+]
+const COUNTERS = [
+  { end: 500, suffix: 'MB', label: 'MAX FILE SIZE' },
+  { end: 6,   suffix: '',   label: 'CLEANING OPERATIONS' },
+  { end: 10,  suffix: 'K',  label: 'ROWS PER CHUNK' },
+]
 
-const fadeUp = {
-  initial:   { opacity: 0, y: 28 },
-  animate:   { opacity: 1, y: 0,  transition: { duration: 0.55, ease: [0.16, 1, 0.3, 1] } },
-  exit:      { opacity: 0, y: -20, transition: { duration: 0.3, ease: 'easeIn' } },
-}
+const SECTION_IDS = ['section-hero', 'section-upload', 'section-configure', 'section-clean', 'section-export']
+const NAV_LABELS  = ['UPLOAD', 'CONFIGURE', 'CLEAN', 'EXPORT']
 
-// ── Helper sub-components ──────────────────────────────────────
-
+/* ─── Inline helpers ────────────────────────────── */
 function LiveClock() {
-  const [t, setT] = useState('')
+  const [t, setT] = useState(() => new Date().toLocaleTimeString('en-GB'))
   useEffect(() => {
-    const tick = () => setT(new Date().toLocaleTimeString('en-GB'))
-    tick()
-    const id = setInterval(tick, 1000)
+    const id = setInterval(() => setT(new Date().toLocaleTimeString('en-GB')), 1000)
     return () => clearInterval(id)
   }, [])
   return <>{t}</>
 }
 
-// ── Main App ───────────────────────────────────────────────────
+function LockOverlay({ message }) {
+  return (
+    <div className="lock-overlay">
+      <span className="lock-pill">{message}</span>
+    </div>
+  )
+}
 
+/* Counter with rAF ease-out cubic */
+function AnimatedCounter({ end, suffix = '', label }) {
+  const ref     = useRef(null)
+  const started = useRef(false)
+  const [val, setVal] = useState('0')
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting || started.current) return
+      started.current = true
+      const duration = 1500
+      const start = performance.now()
+      const tick = (now) => {
+        const p = Math.min((now - start) / duration, 1)
+        const eased = 1 - Math.pow(1 - p, 3)
+        const cur = Math.floor(eased * end)
+        setVal(cur + suffix)
+        if (p < 1) requestAnimationFrame(tick)
+        else setVal(end + suffix)
+      }
+      requestAnimationFrame(tick)
+    }, { threshold: 0.5 })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [end, suffix])
+
+  return (
+    <div ref={ref} className="counter-item">
+      <span className="counter-num">{val}</span>
+      <span className="counter-label">{label}</span>
+    </div>
+  )
+}
+
+/* StatCard with count-up on intersection */
+function StatCard({ label, value }) {
+  const ref     = useRef(null)
+  const started = useRef(false)
+  const [n, setN] = useState(0)
+
+  useEffect(() => {
+    if (!value) return
+    const el = ref.current
+    if (!el) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting || started.current) return
+      started.current = true
+      const duration = 1600
+      const start = performance.now()
+      const target = Number(value)
+      const tick = (now) => {
+        const p = Math.min((now - start) / duration, 1)
+        const eased = 1 - Math.pow(1 - p, 3)
+        setN(Math.floor(eased * target))
+        if (p < 1) requestAnimationFrame(tick)
+        else setN(target)
+      }
+      requestAnimationFrame(tick)
+    }, { threshold: 0.5 })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [value])
+
+  return (
+    <div ref={ref} className="stat-card">
+      <span className="stat-card-val">{n.toLocaleString()}</span>
+      <span className="stat-card-lbl">{label}</span>
+    </div>
+  )
+}
+
+/* ─── Main App ──────────────────────────────────── */
 export default function App() {
-  // ── State ──
-  const [loaderDone, setLoaderDone] = useState(false)
-  // step: 0 = hero, 1 = upload, 2 = configure, 3 = clean, 4 = export
-  const [step, setStep]             = useState(0)
-  const [fileData, setFileData]     = useState(null)
-  const [config, setConfig]         = useState(DEFAULT_CONFIG)
-  const [previewData, setPreviewData] = useState(null)
-  const [isStarting, setIsStarting] = useState(false)
-  const [cleanError, setCleanError] = useState(null)
+  /* State */
+  const [loaderDone, setLoaderDone]     = useState(false)
+  const [activeSection, setActiveSection] = useState(0)
+  const [fileData, setFileData]         = useState(null)
+  const [config, setConfig]             = useState(DEFAULT_CONFIG)
+  const [previewData, setPreviewData]   = useState(null)
+  const [isStarting, setIsStarting]     = useState(false)
+  const [cleanError, setCleanError]     = useState(null)
 
-  const { jobId, status, progress, log, stats, error, startJob, reset } =
-    useCleaningJob()
+  const { jobId, status, progress, log, stats, error, startJob, reset } = useCleaningJob()
   const lastLog = log[log.length - 1] || ''
 
-  // Scroll to top whenever step changes
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'instant' })
-  }, [step])
+  /* ── Reveal IntersectionObserver ── */
+  const setupReveal = useCallback(() => {
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible') })
+    }, { threshold: 0.15 })
+    document.querySelectorAll('.reveal, .reveal-left, .reveal-scale').forEach(el => obs.observe(el))
+    return obs
+  }, [])
 
-  // Fetch preview + auto-advance to export when cleaning done
   useEffect(() => {
-    if (status === 'done' && jobId && !previewData) {
-      getPreview(jobId).then(setPreviewData).catch(console.error)
-      setTimeout(() => setStep(4), 1500)
-    }
-  }, [status, jobId]) // eslint-disable-line
+    if (!loaderDone) return
+    const obs = setupReveal()
+    return () => obs.disconnect()
+  }, [loaderDone, setupReveal])
 
-  // ── Handlers ──
+  /* Re-observe when new content appears */
+  useEffect(() => {
+    if (!loaderDone) return
+    const obs = setupReveal()
+    return () => obs.disconnect()
+  }, [fileData, previewData, status, loaderDone, setupReveal])
+
+  /* ── Active section IntersectionObserver ── */
+  useEffect(() => {
+    if (!loaderDone) return
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          const idx = SECTION_IDS.indexOf(e.target.id)
+          if (idx !== -1) setActiveSection(idx)
+        }
+      })
+    }, { threshold: 0.4 })
+    SECTION_IDS.forEach(id => { const el = document.getElementById(id); if (el) obs.observe(el) })
+    return () => obs.disconnect()
+  }, [loaderDone])
+
+  /* ── Scroll helper ── */
+  const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+
+  /* ── Handlers ── */
   const handleUploadSuccess = (data) => {
     setFileData(data)
-    setTimeout(() => setStep(2), 900)   // auto-advance to configure
+    setTimeout(() => scrollTo('section-configure'), 900)
   }
-
-  const handleConfigChange = (key, val) =>
-    setConfig((p) => ({ ...p, [key]: val }))
+  const handleConfigChange = (key, val) => setConfig(p => ({ ...p, [key]: val }))
 
   const handleStartCleaning = async () => {
     if (!fileData) return
@@ -99,7 +202,7 @@ export default function App() {
     try {
       const res = await startCleaning(fileData.file_id, config)
       startJob(res.job_id)
-      setStep(3)
+      scrollTo('section-clean')
     } catch (err) {
       setCleanError(err?.response?.data?.detail || err.message || 'Failed to start')
     } finally {
@@ -107,30 +210,53 @@ export default function App() {
     }
   }
 
+  useEffect(() => {
+    if (status === 'done' && jobId && !previewData) {
+      getPreview(jobId).then(setPreviewData).catch(console.error)
+      setTimeout(() => scrollTo('section-export'), 1500)
+    }
+  }, [status, jobId]) // eslint-disable-line
+
   const handleReset = () => {
     reset()
     setFileData(null)
     setConfig(DEFAULT_CONFIG)
     setPreviewData(null)
     setCleanError(null)
-    setStep(0)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  // nav active: 0=upload 1=configure 2=clean 3=export → step - 1
-  const navActive = step - 1
+  const navActive = activeSection - 1  // -1 = hero (none active)
 
-  // ── RENDER ─────────────────────────────────────────────────────
+  /* ════════════════════════════════════════════════
+     RENDER
+  ════════════════════════════════════════════════ */
   return (
-    <div style={{ minHeight: '100vh', position: 'relative' }}>
+    <div className={loaderDone ? 'app-ready' : 'app-loading'}>
 
-      {/* ── Loader overlay ── */}
+      {/* ── Loader ── */}
       {!loaderDone && <Loader onComplete={() => setLoaderDone(true)} />}
 
-      {/* ── Persistent fixed chrome ── */}
+      {/* ── Cursor ── */}
       <CustomCursor />
-      <VerticalNav activeIndex={navActive} />
 
-      {/* Corner stats */}
+      {/* ── Vertical nav ── */}
+      <nav className="vertical-nav" aria-label="Steps">
+        {NAV_LABELS.map((label, i) => (
+          <span key={label} style={{ display: 'contents' }}>
+            {i > 0 && <span className="vn-sep" />}
+            <button
+              className={`vn-item${navActive === i ? ' active' : ''}`}
+              onClick={() => scrollTo(SECTION_IDS[i + 1])}
+              style={{ background: 'none', border: 'none', padding: 0, pointerEvents: 'auto' }}
+            >
+              {label}
+            </button>
+          </span>
+        ))}
+      </nav>
+
+      {/* ── Corner stats ── */}
       <div className="corner-stat cs-tl">
         <span className="cs-label">LOCATION</span>
         <span className="cs-value">28.6441° N</span>
@@ -159,7 +285,7 @@ export default function App() {
         <span className="cs-value">v1.0.0</span>
       </div>
 
-      {/* Top navbar */}
+      {/* ── Navbar ── */}
       <nav className="purixa-nav">
         <span className="nav-wordmark">Purixa</span>
         <div className="nav-links">
@@ -168,223 +294,309 @@ export default function App() {
         </div>
       </nav>
 
-      {/* ── Step content ── */}
-      <AnimatePresence mode="wait">
+      {/* ════════════════════════════════════════════════
+          PHASE 1 — HERO
+      ════════════════════════════════════════════════ */}
+      <section id="section-hero" className="hero-section">
+        {/* Green shapes */}
+        <div className="green-shape tri-shape" style={{ bottom: '22%', left: '-6px' }} />
+        <div className="green-shape diamond-shape" style={{ top: '30%', right: '42%' }} />
 
-        {/* ════ STEP 0 — HERO ════ */}
-        {step === 0 && (
-          <motion.div key="hero" {...fadeUp} className="step-view hero-view">
-            {/* Green shapes */}
-            <div className="green-shape tri-shape shape-tri"
-              style={{ bottom: '22%', left: '-6px' }} />
-            <div className="green-shape diamond-shape shape-dia"
-              style={{ top: '30%', right: '42%' }} />
+        {/* Animated wireframe canvas */}
+        <DataWireframe />
 
-            {/* Canvas wireframe (right half) */}
-            <DataWireframe />
+        {/* Hero copy — CSS animations trigger via .app-ready class */}
+        <div className="hero-content">
+          <div className="hero-headline-block">
+            <span className="hero-line-1 headline-solid">YOUR DATA.</span>
+            <span className="hero-line-2 headline-outline">CLEANED.</span>
+          </div>
+          <p className="hero-subtitle hero-sub">
+            Upload. Configure. Export. Done.
+          </p>
+        </div>
 
-            {/* Hero copy */}
-            <div className="hero-copy">
-              <div className="hero-headline-block">
-                <span className="headline-solid">YOUR DATA.</span>
-                <span className="headline-outline">CLEANED.</span>
+        {/* Scroll indicator — pulsing at bottom center */}
+        <div className="scroll-indicator">
+          SCROLL DOWN
+          <span>↓</span>
+        </div>
+
+        <div className="section-rule" />
+      </section>
+
+      {/* ════════════════════════════════════════════════
+          PHASE 2A — MARQUEE STRIP
+      ════════════════════════════════════════════════ */}
+      <div className="marquee-section">
+        {/* Row 1: left */}
+        <div className="marquee-row">
+          <div className="marquee-track-left" aria-hidden>
+            {[0, 1].map(i => (
+              <span key={i} className="marquee-text">
+                {MARQUEE_TEXT.split(' · ').map((word, j) => (
+                  <span key={j}>
+                    {word}{' '}
+                    {j < MARQUEE_TEXT.split(' · ').length - 1 && (
+                      <span className="dot">·</span>
+                    )}
+                    {' '}
+                  </span>
+                ))}
+              </span>
+            ))}
+          </div>
+        </div>
+        {/* Row 2: right */}
+        <div className="marquee-row">
+          <div className="marquee-track-right" aria-hidden>
+            {[0, 1].map(i => (
+              <span key={i} className="marquee-text">
+                {MARQUEE_TEXT.split(' · ').map((word, j) => (
+                  <span key={j}>
+                    {word}{' '}
+                    {j < MARQUEE_TEXT.split(' · ').length - 1 && (
+                      <span className="dot">·</span>
+                    )}
+                    {' '}
+                  </span>
+                ))}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ════════════════════════════════════════════════
+          PHASE 2B — FEATURE CARDS
+      ════════════════════════════════════════════════ */}
+      <div className="feature-section">
+        <span className="feature-section-tag reveal">CAPABILITIES</span>
+        <h2 className="headline-solid reveal" style={{ marginTop: 16, fontSize: 'clamp(28px,3vw,40px)' }}>
+          WHAT PURIXA DOES.
+        </h2>
+
+        <div className="feature-grid">
+          {FEATURE_CARDS.map((card) => (
+            <div key={card.num} className="feature-card reveal">
+              <div className="feature-card-num">{card.num}</div>
+              <div className="feature-card-dot" />
+              <div className="feature-card-title">{card.title}</div>
+              <div className="feature-card-body">
+                {card.lines.map((l, i) => <span key={i}>{l}<br /></span>)}
               </div>
-              <p className="hero-sub">
-                Upload. Configure. Export. Done.
-              </p>
-              <button
-                id="hero-start-btn"
-                className="hero-cta"
-                onClick={() => setStep(1)}
-              >
-                Start Cleaning <span aria-hidden>→</span>
-              </button>
             </div>
-          </motion.div>
-        )}
+          ))}
+        </div>
+      </div>
 
-        {/* ════ STEP 1 — UPLOAD ════ */}
-        {step === 1 && (
-          <motion.div key="upload" {...fadeUp} className="step-view step-section">
-            <div className="section-bg-num">01</div>
-            <div className="step-body">
-              <span className="section-tag">FILE INGESTION</span>
-              <div className="section-headline">
-                <span className="headline-solid">DROP YOUR</span>
-                <span className="headline-solid">DATASET.</span>
-              </div>
-              <p className="section-subtitle">
-                CSV · JSON · TSV — up to 500MB. Large files use chunked streaming.
-              </p>
+      {/* ════════════════════════════════════════════════
+          PHASE 2C — ANIMATED STAT COUNTERS
+      ════════════════════════════════════════════════ */}
+      <div className="counter-section">
+        <span className="counter-section-tag">BY THE NUMBERS</span>
+        <p className="counter-headline">PURIXA IN NUMBERS.</p>
+        <div className="counter-grid">
+          {COUNTERS.map(c => (
+            <AnimatedCounter key={c.label} end={c.end} suffix={c.suffix} label={c.label} />
+          ))}
+        </div>
+      </div>
 
-              <div className="upload-layout">
-                <div>
-                  <div className="file-badges">
-                    {['.csv', '.json', '.tsv'].map((ext) => (
-                      <span key={ext} className="file-badge">{ext}</span>
-                    ))}
-                  </div>
-                  <DropZone onUploadSuccess={handleUploadSuccess} />
-                </div>
-
-                {fileData ? (
-                  <div>
-                    <FileStats fileData={fileData} />
-                    <button
-                      id="go-configure-btn"
-                      className="pill-cta"
-                      style={{ marginTop: 24 }}
-                      onClick={() => setStep(2)}
-                    >
-                      Configure Operations →
-                    </button>
-                  </div>
-                ) : (
-                  <p className="await-label">AWAITING FILE INPUT</p>
-                )}
-              </div>
+      {/* ════════════════════════════════════════════════
+          PHASE 3 — UPLOAD
+      ════════════════════════════════════════════════ */}
+      <section id="section-upload" className="full-section">
+        <div className="section-bg-num">01</div>
+        <div className="section-body">
+          <span className="section-tag reveal-left">FILE INGESTION</span>
+          <div style={{ marginBottom: 14 }}>
+            <span className="headline-solid reveal">DROP YOUR</span>
+            <span className="headline-solid reveal">DATASET.</span>
+          </div>
+          <p className="section-subtitle reveal">
+            CSV · JSON · TSV — up to 500MB. Large files use chunked streaming.
+          </p>
+          <div className="file-badges reveal">
+            {['.csv', '.json', '.tsv'].map(ext => (
+              <span key={ext} className="file-badge">{ext}</span>
+            ))}
+          </div>
+          <div className="upload-layout reveal">
+            <div id="upload-drop-zone">
+              <DropZone onUploadSuccess={handleUploadSuccess} />
             </div>
-          </motion.div>
-        )}
-
-        {/* ════ STEP 2 — CONFIGURE ════ */}
-        {step === 2 && (
-          <motion.div key="configure" {...fadeUp} className="step-view step-section">
-            <div className="section-bg-num">02</div>
-            <div className="step-body">
-              <span className="section-tag">OPERATIONS</span>
-              <div className="section-headline">
-                <span className="headline-solid">SET YOUR</span>
-                <span className="headline-outline">RULES.</span>
-              </div>
-              <p className="section-subtitle">
-                Choose what gets cleaned. Toggle what you need.
-              </p>
-
-              <CleaningOptions config={config} onChange={handleConfigChange} />
-
-              <div style={{ marginTop: 32 }}>
-                {cleanError && <p className="error-text">{cleanError}</p>}
+            {fileData ? (
+              <div>
+                <FileStats fileData={fileData} />
                 <button
-                  id="run-pipeline-btn"
-                  className="pill-cta pill-cta-solid"
-                  onClick={handleStartCleaning}
-                  disabled={!fileData || isStarting}
-                  style={{ marginTop: 16 }}
-                >
-                  {isStarting ? 'Starting...' : 'Run Purixa →'}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* ════ STEP 3 — CLEAN ════ */}
-        {step === 3 && (
-          <motion.div key="clean" {...fadeUp} className="step-view step-section">
-            <div className="section-bg-num">03</div>
-            <div className="step-body">
-              <span className="section-tag">PROCESSING</span>
-              <div className="section-headline">
-                <span className="headline-solid">
-                  {status === 'done' ? 'PIPELINE' : 'RUNNING'}
-                </span>
-                <span className={status === 'done' ? 'headline-outline' : 'headline-solid'}>
-                  {status === 'done' ? 'COMPLETE.' : 'PIPELINE.'}
-                </span>
-              </div>
-              <p className="section-subtitle">
-                {status === 'done'
-                  ? `${(stats?.rows_after ?? 0).toLocaleString()} rows ready for export`
-                  : 'Your dataset is being processed…'}
-              </p>
-
-              {/* Thin neon green progress bar */}
-              <div className="progress-full">
-                <div className="progress-fill" style={{ width: `${progress}%` }} />
-              </div>
-
-              <div className="clean-layout">
-                <ProgressBar progress={progress} statusText={lastLog} />
-                <CleaningLog log={log} />
-              </div>
-
-              {status === 'error' && (
-                <p className="error-text" style={{ marginTop: 16 }}>{error || 'Unknown error'}</p>
-              )}
-              {status === 'done' && (
-                <button
-                  id="view-results-btn"
+                  id="go-configure-btn"
                   className="pill-cta"
-                  style={{ marginTop: 28 }}
-                  onClick={() => setStep(4)}
+                  style={{ marginTop: 24 }}
+                  onClick={() => scrollTo('section-configure')}
                 >
-                  View Results →
+                  Configure Operations →
                 </button>
-              )}
-            </div>
-          </motion.div>
-        )}
-
-        {/* ════ STEP 4 — EXPORT ════ */}
-        {step === 4 && (
-          <motion.div key="export" {...fadeUp} className="step-view step-section">
-            <div className="section-bg-num">04</div>
-            <div className="step-body" style={{ paddingBottom: 100 }}>
-              <span className="section-tag">EXPORT</span>
-              <div className="section-headline">
-                <span className="headline-solid">YOUR DATA</span>
-                <span className="headline-outline">IS READY.</span>
               </div>
-              <p className="section-subtitle">
-                Download your cleaned dataset in your preferred format.
-              </p>
+            ) : (
+              <p className="await-label">AWAITING FILE INPUT</p>
+            )}
+          </div>
+        </div>
+        <div className="section-rule" />
+      </section>
 
-              {previewData && (
-                <StatsReport
-                  stats={previewData.stats || stats}
-                  summary={previewData.summary}
-                />
-              )}
+      {/* ════════════════════════════════════════════════
+          PHASE 4 — CONFIGURE
+      ════════════════════════════════════════════════ */}
+      <section id="section-configure" className="full-section">
+        {!fileData && <LockOverlay message="↑ Upload a file first" />}
+        <div className="section-bg-num">02</div>
+        <div className="section-body">
+          <span className="section-tag reveal-left">OPERATIONS</span>
+          <div style={{ marginBottom: 14 }}>
+            <span className="headline-solid reveal">SET YOUR</span>
+            <span className="headline-outline reveal">RULES.</span>
+          </div>
+          <p className="section-subtitle reveal">
+            Choose what gets cleaned. Toggle what you need.
+          </p>
+          {/* Wrap CleaningOptions in reveal — framer-motion handles internal card appearance */}
+          <div className="reveal">
+            <CleaningOptions config={config} onChange={handleConfigChange} />
+          </div>
+          <div className="reveal" style={{ marginTop: 32 }}>
+            {cleanError && <p className="error-text">{cleanError}</p>}
+            <button
+              id="run-pipeline-btn"
+              className="pill-cta pill-cta-solid"
+              onClick={handleStartCleaning}
+              disabled={!fileData || isStarting}
+              style={{ marginTop: 16 }}
+            >
+              {isStarting ? 'Starting...' : 'RUN PURIXA →'}
+            </button>
+          </div>
+        </div>
+        <div className="section-rule" />
+      </section>
 
-              <ExportPanel jobId={jobId} stats={previewData?.stats || stats} />
+      {/* ════════════════════════════════════════════════
+          PHASE 5 — CLEAN
+      ════════════════════════════════════════════════ */}
+      <section id="section-clean" className="full-section">
+        {!jobId && <LockOverlay message="↑ Configure and run the pipeline first" />}
+        <div className="section-bg-num">03</div>
+        <div className="section-body">
+          <span className="section-tag reveal-left">PROCESSING</span>
+          <div style={{ marginBottom: 14 }}>
+            <span className="headline-solid reveal">
+              {status === 'done' ? 'PIPELINE' : 'RUNNING'}
+            </span>
+            <span className={`reveal ${status === 'done' ? 'headline-outline' : 'headline-solid'}`}>
+              {status === 'done' ? 'COMPLETE.' : 'PIPELINE.'}
+            </span>
+          </div>
+          <p className="section-subtitle reveal">
+            {status === 'done'
+              ? `${(stats?.rows_after ?? 0).toLocaleString()} rows ready for export`
+              : 'Your dataset is being processed…'}
+          </p>
 
-              {previewData && (
-                <>
-                  <p className="preview-label">
-                    DATA PREVIEW — FIRST {previewData.rows?.length} OF{' '}
-                    {previewData.total_rows?.toLocaleString()} ROWS
-                  </p>
-                  <DataPreview
-                    columns={previewData.columns}
-                    rows={previewData.rows}
-                    totalRows={previewData.total_rows}
-                    columnTypes={previewData.column_types}
-                  />
-                </>
-              )}
+          {/* Thin green progress bar */}
+          <div className="progress-full reveal">
+            <div className="progress-fill" style={{ width: `${progress}%` }} />
+          </div>
 
-              <button
-                id="clean-another-btn"
-                className="restart-link"
-                onClick={handleReset}
-              >
-                ↺ Clean another file
-              </button>
+          <div className="clean-layout reveal">
+            <ProgressBar progress={progress} statusText={lastLog} />
+            <CleaningLog log={log} />
+          </div>
+
+          {/* Stat cards count up on completion */}
+          {status === 'done' && stats && (
+            <div className="clean-stat-grid">
+              <StatCard label="ROWS BEFORE"        value={stats.rows_before} />
+              <StatCard label="ROWS AFTER"         value={stats.rows_after} />
+              <StatCard label="DUPLICATES REMOVED" value={stats.duplicates_removed} />
+              <StatCard label="MISSING FILLED"     value={stats.missing_filled} />
+              <StatCard label="OUTLIERS REMOVED"   value={stats.outliers_removed} />
             </div>
-          </motion.div>
-        )}
+          )}
 
-      </AnimatePresence>
+          {status === 'error' && (
+            <p className="error-text" style={{ marginTop: 16 }}>{error || 'Unknown error'}</p>
+          )}
+          {status === 'done' && (
+            <button
+              id="view-results-btn"
+              className="pill-cta reveal"
+              style={{ marginTop: 28 }}
+              onClick={() => scrollTo('section-export')}
+            >
+              View Results →
+            </button>
+          )}
+        </div>
+        <div className="section-rule" />
+      </section>
 
-      {/* Footer (always visible below active step) */}
-      {step === 0 && (
-        <footer className="purixa-footer">
-          <div className="footer-left">PURIXA <span>v1.0.0</span></div>
-          <div className="footer-center">Data cleaning, refined.</div>
-          <div className="footer-right"><LiveClock /></div>
-        </footer>
-      )}
+      {/* ════════════════════════════════════════════════
+          PHASE 6 — EXPORT
+      ════════════════════════════════════════════════ */}
+      <section id="section-export" className="full-section" style={{ minHeight: '100vh', alignItems: 'flex-start' }}>
+        {status !== 'done' && <LockOverlay message="↑ Complete the cleaning pipeline first" />}
+        <div className="section-bg-num">04</div>
+        <div className="section-body" style={{ paddingBottom: 100 }}>
+          <span className="section-tag reveal-left">EXPORT</span>
+          <div style={{ marginBottom: 14 }}>
+            <span className="headline-solid reveal">YOUR DATA</span>
+            <span className="headline-outline reveal">IS READY.</span>
+          </div>
+          <p className="section-subtitle reveal">
+            Download your cleaned dataset in your preferred format.
+          </p>
+
+          {previewData && (
+            <div className="reveal">
+              <StatsReport stats={previewData.stats || stats} summary={previewData.summary} />
+            </div>
+          )}
+
+          {/* Large download buttons */}
+          <div className="download-row reveal">
+            <ExportPanel jobId={jobId} stats={previewData?.stats || stats} />
+          </div>
+
+          {/* Data preview table */}
+          {previewData && (
+            <div className="reveal">
+              <span className="preview-label">
+                DATA PREVIEW — FIRST {previewData.rows?.length} OF {previewData.total_rows?.toLocaleString()} ROWS
+              </span>
+              <DataPreview
+                columns={previewData.columns}
+                rows={previewData.rows}
+                totalRows={previewData.total_rows}
+                columnTypes={previewData.column_types}
+              />
+            </div>
+          )}
+
+          <button id="clean-another-btn" className="restart-link reveal" onClick={handleReset}>
+            ↺ CLEAN ANOTHER FILE →
+          </button>
+        </div>
+      </section>
+
+      {/* ════════════════════════════════════════════════
+          PHASE 7 — FOOTER
+      ════════════════════════════════════════════════ */}
+      <footer className="purixa-footer">
+        <div className="footer-left">PURIXA<span>v1.0.0</span></div>
+        <div className="footer-center">Data cleaning, refined.</div>
+        <div className="footer-right"><LiveClock /></div>
+      </footer>
     </div>
   )
 }
