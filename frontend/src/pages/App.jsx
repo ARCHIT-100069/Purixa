@@ -41,15 +41,23 @@ const COUNTERS = [
 ]
 
 const SECTION_IDS = ['section-hero', 'section-upload', 'section-configure', 'section-clean', 'section-export']
-const NAV_LABELS  = ['UPLOAD', 'CONFIGURE', 'CLEAN', 'EXPORT']
 
 /* ─── Inline helpers ────────────────────────────── */
 function LiveClock() {
-  const [t, setT] = useState(() => new Date().toLocaleTimeString('en-GB'))
+  const formatTime = () => {
+    const now = new Date()
+    let hours = now.getHours()
+    const minutes = now.getMinutes().toString().padStart(2, '0')
+    const ampm = hours >= 12 ? 'PM' : 'AM'
+    hours = hours % 12 || 12
+    return `${hours}:${minutes} ${ampm}`
+  }
+  const [t, setT] = useState(formatTime)
   useEffect(() => {
-    const id = setInterval(() => setT(new Date().toLocaleTimeString('en-GB')), 1000)
+    // Update every minute (no seconds displayed)
+    const id = setInterval(() => setT(formatTime()), 60000)
     return () => clearInterval(id)
-  }, [])
+  }, []) // eslint-disable-line
   return <>{t}</>
 }
 
@@ -235,11 +243,7 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const navActive = activeSection - 1  // -1 = hero (none active)
-
-  /* ════════════════════════════════════════════════
-     RENDER
-  ════════════════════════════════════════════════ */
+  /* ════ RENDER ════ */
   return (
     <div className={loaderDone ? 'app-ready' : 'app-loading'}>
 
@@ -249,58 +253,25 @@ export default function App() {
       {/* ── Cursor ── */}
       <CustomCursor />
 
-      {/* ── Vertical nav ── */}
-      <nav className="vertical-nav" aria-label="Steps">
-        {NAV_LABELS.map((label, i) => (
-          <span key={label} style={{ display: 'contents' }}>
-            {i > 0 && <span className="vn-sep" />}
-            <button
-              className={`vn-item${navActive === i ? ' active' : ''}`}
-              onClick={() => scrollTo(SECTION_IDS[i + 1])}
-              style={{ background: 'none', border: 'none', padding: 0, pointerEvents: 'auto' }}
-            >
-              {label}
-            </button>
-          </span>
-        ))}
-      </nav>
 
-      {/* ── Corner stats ── */}
-      <div className="corner-stat cs-tl">
-        <span className="cs-label">LOCATION</span>
-        <span className="cs-value">28.6441° N</span>
-        <span className="cs-value">77.3910° E</span>
-      </div>
-      <div className="corner-stat cs-tr">
-        <span className="cs-label">ROWS</span>
-        <span className="cs-value">{fileData ? fileData.rows.toLocaleString() : '—'}</span>
-        <span className="cs-label" style={{ marginTop: 4 }}>COLS</span>
-        <span className="cs-value">{fileData ? fileData.cols : '—'}</span>
-      </div>
+
+      {/* ── Bottom-right: Local Time + Pipeline status ── */}
       <div className="corner-stat cs-br">
         <span className="cs-label">LOCAL TIME</span>
         <span className="cs-value"><LiveClock /></span>
-        {status && status !== 'idle' && (
-          <>
-            <span className="cs-label" style={{ marginTop: 4 }}>PIPELINE</span>
-            <span className={`cs-value${status === 'done' ? ' accent' : ''}`}>
-              {status === 'running' ? `${progress}%` : status.toUpperCase()}
-            </span>
-          </>
-        )}
-      </div>
-      <div className="corner-stat cs-bl">
-        <span className="cs-label">PURIXA</span>
-        <span className="cs-value">v1.0.0</span>
+        <span className="cs-label" style={{ marginTop: 6 }}>PIPELINE</span>
+        <span className={`cs-value${status === 'done' ? ' accent' : ''}`}>
+          {!status || status === 'idle'
+            ? '—'
+            : status === 'running'
+            ? `${progress}%`
+            : status.toUpperCase()}
+        </span>
       </div>
 
       {/* ── Navbar ── */}
       <nav className="purixa-nav">
         <span className="nav-wordmark">Purixa</span>
-        <div className="nav-links">
-          <a href="https://github.com/ARCHIT-100069/Purixa" target="_blank" rel="noreferrer">GitHub</a>
-          <a href="https://purixa-backend-production.up.railway.app/docs" target="_blank" rel="noreferrer">API Docs</a>
-        </div>
       </nav>
 
       {/* ════════════════════════════════════════════════
@@ -601,14 +572,7 @@ export default function App() {
       </section>
       )}
 
-      {/* ════════════════════════════════════════════════
-          PHASE 7 — FOOTER
-      ════════════════════════════════════════════════ */}
-      <footer className="purixa-footer">
-        <div className="footer-left">PURIXA<span>v1.0.0</span></div>
-        <div className="footer-center">Data cleaning, refined.</div>
-        <div className="footer-right"><LiveClock /></div>
-      </footer>
+
     </div>
   )
 }
