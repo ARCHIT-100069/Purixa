@@ -1,156 +1,162 @@
 import { useEffect, useRef } from 'react'
-import gsap from 'gsap'
 
-// Nodes and connection data for the data-network wireframe
-const NODES = [
-  { id: 'n1',  cx: 120,  cy: 80  },
-  { id: 'n2',  cx: 280,  cy: 50  },
-  { id: 'n3',  cx: 440,  cy: 110 },
-  { id: 'n4',  cx: 560,  cy: 60  },
-  { id: 'n5',  cx: 80,   cy: 220 },
-  { id: 'n6',  cx: 210,  cy: 200 },
-  { id: 'n7',  cx: 360,  cy: 240 },
-  { id: 'n8',  cx: 510,  cy: 190 },
-  { id: 'n9',  cx: 620,  cy: 220 },
-  { id: 'n10', cx: 150,  cy: 350 },
-  { id: 'n11', cx: 300,  cy: 380 },
-  { id: 'n12', cx: 470,  cy: 340 },
-  { id: 'n13', cx: 580,  cy: 380 },
-  { id: 'n14', cx: 240,  cy: 490 },
-  { id: 'n15', cx: 420,  cy: 500 },
+// Node definitions — fractions of canvas size so it's responsive
+const NODE_DEFS = [
+  // [xFrac, yFrac, phase, isAccent]
+  [0.10, 0.18, 0.00, true],
+  [0.32, 0.10, 1.30, false],
+  [0.58, 0.20, 2.50, true],
+  [0.82, 0.08, 0.70, false],
+  [0.18, 0.42, 1.90, false],
+  [0.44, 0.46, 3.10, false],
+  [0.68, 0.36, 1.50, true],
+  [0.90, 0.50, 2.30, false],
+  [0.08, 0.66, 0.50, false],
+  [0.36, 0.74, 2.10, true],
+  [0.62, 0.68, 1.00, false],
+  [0.86, 0.76, 3.30, false],
+  [0.22, 0.88, 1.60, false],
+  [0.52, 0.92, 0.30, true],
+  [0.76, 0.88, 2.80, false],
 ]
+
 const EDGES = [
-  ['n1','n2'], ['n2','n3'], ['n3','n4'], ['n1','n5'], ['n1','n6'],
-  ['n2','n6'], ['n3','n7'], ['n4','n8'], ['n4','n9'],
-  ['n5','n10'], ['n6','n11'], ['n7','n11'], ['n7','n12'],
-  ['n8','n12'], ['n9','n13'], ['n10','n14'], ['n11','n14'],
-  ['n12','n15'], ['n13','n15'], ['n14','n15'],
-  ['n6','n7'], ['n8','n9'],
+  [0,1],[1,2],[2,3],
+  [0,4],[1,5],[2,6],[3,7],
+  [4,5],[5,6],[6,7],
+  [4,8],[5,9],[6,10],[7,11],
+  [8,9],[9,10],[10,11],
+  [8,12],[9,13],[10,14],
+  [12,13],[13,14],
+  [2,9],[6,13],
 ]
-const ACCENT_NODES = new Set(['n2', 'n7', 'n12', 'n15'])
-const ACCENT_EDGES = new Set([
-  JSON.stringify(['n2','n7']),
-  JSON.stringify(['n7','n12']),
-  JSON.stringify(['n12','n15']),
-])
 
-function getNode(id) {
-  return NODES.find(n => n.id === id)
-}
+// Accent edges: both endpoints are accent nodes
+const ACCENT_SET = new Set(NODE_DEFS.flatMap((n, i) => n[3] ? [i] : []))
+function isAccentEdge(a, b) { return ACCENT_SET.has(a) && ACCENT_SET.has(b) }
 
 export default function DataWireframe() {
-  const svgRef = useRef(null)
+  const canvasRef = useRef(null)
+  const mouseRef  = useRef({ x: -999, y: -999 })
+  const rafRef    = useRef(null)
 
   useEffect(() => {
-    const paths = svgRef.current?.querySelectorAll('.wire-path')
-    const nodes = svgRef.current?.querySelectorAll('.wire-node')
-    if (!paths || !nodes) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
 
-    // Set initial dasharray/dashoffset for path draw animation
-    paths.forEach((path) => {
-      const len = path.getTotalLength?.() || 200
-      path.style.strokeDasharray = len
-      path.style.strokeDashoffset = len
-    })
+    // Set up canvas DPI
+    const resize = () => {
+      const rect = canvas.parentElement.getBoundingClientRect()
+      const dpr  = window.devicePixelRatio || 1
+      canvas.width  = rect.width  * dpr
+      canvas.height = rect.height * dpr
+      canvas.style.width  = rect.width  + 'px'
+      canvas.style.height = rect.height + 'px'
+      ctx.scale(dpr, dpr)
+    }
+    resize()
+    const ro = new ResizeObserver(resize)
+    ro.observe(canvas.parentElement)
 
-    // Animate paths drawing in
-    gsap.to(paths, {
-      strokeDashoffset: 0,
-      duration: 0.6,
-      stagger: 0.04,
-      ease: 'power1.inOut',
-      delay: 0.3,
-    })
+    // Mouse tracking — relative to canvas position
+    const onMouse = (e) => {
+      const rect = canvas.getBoundingClientRect()
+      mouseRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    }
+    window.addEventListener('mousemove', onMouse)
 
-    // Animate nodes fading in
-    gsap.from(nodes, {
-      opacity: 0,
-      scale: 0,
-      duration: 0.4,
-      stagger: 0.05,
-      ease: 'back.out(1.5)',
-      delay: 0.2,
-      transformOrigin: 'center center',
-    })
+    // Animation loop
+    const draw = (ts) => {
+      const t = ts * 0.001
+      const W = canvas.width  / (window.devicePixelRatio || 1)
+      const H = canvas.height / (window.devicePixelRatio || 1)
+
+      ctx.clearRect(0, 0, W, H)
+
+      // Compute animated node positions
+      const pos = NODE_DEFS.map(([xf, yf, phase]) => ({
+        x: xf * W + Math.sin(t * 0.7 + phase) * 10,
+        y: yf * H + Math.cos(t * 0.55 + phase) * 8,
+      }))
+
+      // Mouse attraction (subtle)
+      const mx = mouseRef.current.x
+      const my = mouseRef.current.y
+      pos.forEach((p) => {
+        const dx   = mx - p.x
+        const dy   = my - p.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < 200 && dist > 0) {
+          const f = (1 - dist / 200) * 0.055
+          p.x += dx * f
+          p.y += dy * f
+        }
+      })
+
+      // Draw edges
+      EDGES.forEach(([a, b]) => {
+        const pa = pos[a], pb = pos[b]
+        const accent = isAccentEdge(a, b)
+        ctx.beginPath()
+        ctx.moveTo(pa.x, pa.y)
+        ctx.lineTo(pb.x, pb.y)
+        ctx.strokeStyle = accent ? 'rgba(77,224,105,0.85)' : 'rgba(10,10,10,0.22)'
+        ctx.lineWidth   = accent ? 1.4 : 0.8
+        ctx.stroke()
+      })
+
+      // Draw nodes
+      NODE_DEFS.forEach((def, i) => {
+        const p = pos[i]
+        const accent = def[3]
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, accent ? 5.5 : 2.8, 0, Math.PI * 2)
+        if (accent) {
+          ctx.fillStyle = '#4DE069'
+          ctx.fill()
+        } else {
+          ctx.strokeStyle = 'rgba(10,10,10,0.28)'
+          ctx.lineWidth = 0.8
+          ctx.stroke()
+        }
+      })
+
+      // Floating green diamond (slow drift)
+      const dx = 0.50 * W + Math.sin(t * 0.4) * 18
+      const dy = 0.55 * H + Math.cos(t * 0.3) * 14
+      ctx.save()
+      ctx.translate(dx, dy)
+      ctx.rotate(Math.PI / 4 + t * 0.05)
+      ctx.fillStyle = 'rgba(77,224,105,0.70)'
+      ctx.fillRect(-10, -10, 20, 20)
+      ctx.restore()
+
+      rafRef.current = requestAnimationFrame(draw)
+    }
+
+    rafRef.current = requestAnimationFrame(draw)
+
+    return () => {
+      cancelAnimationFrame(rafRef.current)
+      window.removeEventListener('mousemove', onMouse)
+      ro.disconnect()
+    }
   }, [])
 
   return (
     <div
       style={{
         position: 'absolute',
-        right: '0',
-        top: '50%',
-        transform: 'translateY(-50%)',
-        width: '55%',
-        maxWidth: '680px',
-        opacity: 0.55,
+        top: 0, right: 0, bottom: 0,
+        width: '56%',
         pointerEvents: 'none',
       }}
     >
-      <svg
-        ref={svgRef}
-        viewBox="0 0 680 560"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        style={{ width: '100%', height: 'auto' }}
-      >
-        {/* Edges */}
-        {EDGES.map(([from, to]) => {
-          const a = getNode(from)
-          const b = getNode(to)
-          if (!a || !b) return null
-          const key = JSON.stringify([from, to])
-          const isAccent = ACCENT_EDGES.has(key)
-          return (
-            <line
-              key={key}
-              className="wire-path"
-              x1={a.cx} y1={a.cy}
-              x2={b.cx} y2={b.cy}
-              stroke={isAccent ? '#4DE069' : '#0A0A0A'}
-              strokeWidth={isAccent ? 1.5 : 0.8}
-              opacity={isAccent ? 0.9 : 0.35}
-            />
-          )
-        })}
-
-        {/* Nodes */}
-        {NODES.map((node) => {
-          const isAccent = ACCENT_NODES.has(node.id)
-          return (
-            <circle
-              key={node.id}
-              className="wire-node"
-              cx={node.cx}
-              cy={node.cy}
-              r={isAccent ? 6 : 3}
-              fill={isAccent ? '#4DE069' : 'none'}
-              stroke={isAccent ? '#4DE069' : '#0A0A0A'}
-              strokeWidth={1}
-              opacity={isAccent ? 1 : 0.5}
-            />
-          )
-        })}
-
-        {/* Label on accent nodes */}
-        {[...ACCENT_NODES].map((id) => {
-          const node = getNode(id)
-          if (!node) return null
-          return (
-            <text
-              key={`lbl-${id}`}
-              x={node.cx + 10}
-              y={node.cy + 4}
-              fontSize="8"
-              fill="#4DE069"
-              fontFamily="'Space Mono', monospace"
-              opacity={0.8}
-            >
-              {id.toUpperCase()}
-            </text>
-          )
-        })}
-      </svg>
+      <canvas
+        ref={canvasRef}
+        style={{ display: 'block', opacity: 0.65 }}
+      />
     </div>
   )
 }

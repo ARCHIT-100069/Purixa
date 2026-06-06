@@ -1,19 +1,16 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 
-// Register GSAP plugins
 gsap.registerPlugin(ScrollTrigger, useGSAP)
 
-// New visual components
+// Visual components
 import Loader        from '../components/Loader'
 import CustomCursor  from '../components/CustomCursor'
-import VerticalNav   from '../components/VerticalNav'
-import FloatingStats from '../components/FloatingStats'
 import DataWireframe from '../components/DataWireframe'
 
-// Functional components (unchanged logic, restyled via CSS tokens)
+// Functional components (API logic unchanged)
 import DropZone        from '../components/DropZone'
 import FileStats       from '../components/FileStats'
 import CleaningOptions from '../components/CleaningOptions'
@@ -21,10 +18,9 @@ import ProgressBar     from '../components/ProgressBar'
 import CleaningLog     from '../components/CleaningLog'
 import DataPreview     from '../components/DataPreview'
 import StatsReport     from '../components/StatsReport'
-import ExportPanel     from '../components/ExportPanel'
 
 import { useCleaningJob } from '../hooks/useCleaningJob'
-import { startCleaning, getPreview } from '../utils/api'
+import { startCleaning, getPreview, downloadFile } from '../utils/api'
 
 const DEFAULT_CONFIG = {
   remove_duplicates: true,
@@ -35,213 +31,209 @@ const DEFAULT_CONFIG = {
   fix_formatting:    true,
 }
 
+// ── Inline sub-components ──────────────────────────────────────
+
+function LockOverlay({ message }) {
+  return (
+    <div className="lock-overlay">
+      <span className="lock-pill">{message}</span>
+    </div>
+  )
+}
+
+function StatCard({ label, value }) {
+  const ref       = useRef(null)
+  const [n, setN] = useState(0)
+  const started   = useRef(false)
+
+  useEffect(() => {
+    if (!value || started.current) return
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        started.current = true
+        const obj = { val: 0 }
+        gsap.to(obj, {
+          val: Number(value),
+          duration: 1.6,
+          ease: 'power2.out',
+          onUpdate() { setN(Math.round(obj.val)) },
+        })
+        observer.disconnect()
+      },
+      { threshold: 0.6 }
+    )
+    if (ref.current) observer.observe(ref.current)
+    return () => observer.disconnect()
+  }, [value])
+
+  return (
+    <div ref={ref} className="stat-card">
+      <span className="stat-card-val">{n.toLocaleString()}</span>
+      <span className="stat-card-lbl">{label}</span>
+    </div>
+  )
+}
+
+function LiveClock() {
+  const [t, setT] = useState('')
+  useEffect(() => {
+    const tick = () => setT(new Date().toLocaleTimeString('en-GB'))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
+  return <>{t}</>
+}
+
+const SECTION_IDS = ['section-hero', 'section-upload', 'section-configure', 'section-clean', 'section-export']
+const NAV_LABELS  = ['UPLOAD', 'CONFIGURE', 'CLEAN', 'EXPORT']
+
+// ── Main App ───────────────────────────────────────────────────
+
 export default function App() {
-  const mainRef        = useRef(null)
-  const [loaderDone, setLoaderDone] = useState(false)
-  const [activeSection, setActiveSection] = useState(-1)  // -1 = hero
-  const [fileData, setFileData]     = useState(null)
-  const [config, setConfig]         = useState(DEFAULT_CONFIG)
-  const [previewData, setPreviewData] = useState(null)
-  const [isStartingClean, setIsStartingClean] = useState(false)
-  const [cleanError, setCleanError] = useState(null)
+  const mainRef = useRef(null)
+
+  // ── State ──
+  const [loaderDone, setLoaderDone]     = useState(false)
+  const [activeIdx, setActiveIdx]       = useState(0)   // index into SECTION_IDS
+  const [fileData, setFileData]         = useState(null)
+  const [config, setConfig]             = useState(DEFAULT_CONFIG)
+  const [previewData, setPreviewData]   = useState(null)
+  const [isStarting, setIsStarting]     = useState(false)
+  const [cleanError, setCleanError]     = useState(null)
 
   const { jobId, status, progress, log, stats, error, startJob, reset } = useCleaningJob()
   const lastLog = log[log.length - 1] || ''
 
-  // ── GSAP SCROLL ANIMATIONS ──────────────────────────
+  // ── Scroll helper ──
+  const scrollTo = (id) =>
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+
+  // ── IntersectionObserver — active section ──
+  useEffect(() => {
+    if (!loaderDone) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          if (e.isIntersecting) {
+            setActiveIdx(SECTION_IDS.indexOf(e.target.id))
+          }
+        })
+      },
+      { threshold: 0.45 }
+    )
+    SECTION_IDS.forEach((id) => {
+      const el = document.getElementById(id)
+      if (el) observer.observe(el)
+    })
+    return () => observer.disconnect()
+  }, [loaderDone])
+
+  // ── GSAP scroll-triggered entrance animations ──
   useGSAP(
     () => {
       if (!loaderDone) return
-
-      // Give DOM a frame to settle after loader exit
       ScrollTrigger.refresh()
 
-      const mm = gsap.matchMedia()
+      // Hero: animate in right after loader exits (no scroll trigger)
+      gsap.timeline({ delay: 0.15 })
+        .from('.hero-word', { yPercent: 112, stagger: 0.1, duration: 0.85, ease: 'power3.out' })
+        .from('.hero-sub',  { opacity: 0, y: 20, duration: 0.6 }, '-=0.35')
+        .from('.hero-cta',  { opacity: 0, scale: 0.9, duration: 0.5 }, '-=0.3')
+        .from('.shape-tri', { x: -90, opacity: 0, duration: 0.7, ease: 'power3.out' }, '-=0.55')
+        .from('.shape-dia', { scale: 0, opacity: 0, duration: 0.5, ease: 'back.out(1.7)' }, '-=0.45')
+        .from('.hero-meta-item', { opacity: 0, stagger: 0.08, duration: 0.4 }, '-=0.4')
+        .from('.scroll-hint', { opacity: 0, duration: 0.5 }, '-=0.2')
 
-      // ── DESKTOP (pinned sections) ──
-      mm.add('(min-width: 768px)', () => {
-        // Hero — word reveal scrubbed to scroll
-        const heroTL = gsap.timeline({
-          scrollTrigger: {
-            trigger: '#hero',
-            start: 'top top',
-            end: '+=900',
-            pin: true,
-            scrub: 1,
-            anticipatePin: 1,
-            onEnter:     () => setActiveSection(-1),
-            onEnterBack: () => setActiveSection(-1),
-          },
+      // Each content section: headline + tag + subtitle slide up
+      ;['upload', 'configure', 'clean', 'export'].forEach((name) => {
+        const t = `#section-${name}`
+        const opts = { start: 'top 72%', toggleActions: 'play none none none' }
+
+        gsap.from(`${t} .section-bg-num`, {
+          opacity: 0, x: -40, duration: 0.9,
+          scrollTrigger: { trigger: t, ...opts },
         })
-        heroTL
-          .from('.hero-word', {
-            yPercent: 115,
-            duration: 1,
-            stagger: 0.18,
-            ease: 'power3.out',
-          })
-          .from('.hero-subtitle',  { opacity: 0, y: 24, duration: 0.7 }, '-=0.4')
-          .from('.hero-cta',       { opacity: 0, scale: 0.92, duration: 0.5 }, '-=0.3')
-          .from('.hero-scroll-hint', { opacity: 0, duration: 0.4 }, '-=0.2')
-          .from('.hero-meta',      { opacity: 0, duration: 0.5, stagger: 0.1 }, '-=0.6')
-          // Green shapes parallax during hero scroll
-          .to('.shape-1', { x: 180, y: -60, rotation: 20, duration: 2 }, 0)
-          .to('.shape-2', { x: -120, y: 60,  rotation: -30, duration: 2 }, 0)
-          .to('.shape-3', { x: -200, opacity: 0.3, duration: 2 }, 0)
-
-        // Section 01 — Upload
-        gsap.timeline({
-          scrollTrigger: {
-            trigger: '#section-upload',
-            start: 'top top',
-            end: '+=700',
-            pin: true,
-            scrub: 1,
-            anticipatePin: 1,
-            onEnter:     () => setActiveSection(0),
-            onEnterBack: () => setActiveSection(0),
-          },
+        gsap.from(`${t} .section-tag`, {
+          opacity: 0, y: 20, duration: 0.6,
+          scrollTrigger: { trigger: t, ...opts },
         })
-          .from('.upload-number',  { x: -120, opacity: 0, duration: 1 })
-          .from('.upload-heading', { y: 70,  opacity: 0, duration: 0.9 }, '-=0.5')
-          .from('.upload-zone',    { opacity: 0, scale: 0.93, duration: 0.8 }, '-=0.4')
-          .from('.upload-meta',    { opacity: 0, x: 30, duration: 0.6, stagger: 0.1 }, '-=0.3')
-
-        // Section 02 — Configure
-        gsap.timeline({
-          scrollTrigger: {
-            trigger: '#section-configure',
-            start: 'top top',
-            end: '+=800',
-            pin: true,
-            scrub: 1,
-            anticipatePin: 1,
-            onEnter:     () => setActiveSection(1),
-            onEnterBack: () => setActiveSection(1),
-          },
+        gsap.from(`${t} .section-headline`, {
+          y: 65, opacity: 0, duration: 0.85, ease: 'power3.out',
+          scrollTrigger: { trigger: t, ...opts },
         })
-          .from('.configure-number',  { x: -120, opacity: 0, duration: 1 })
-          .from('.configure-heading', { y: 70,  opacity: 0, duration: 0.9 }, '-=0.5')
-          .from('.card-hover',        { y: 50,  opacity: 0, stagger: 0.1, duration: 0.7 }, '-=0.3')
-          .from('.configure-actions', { opacity: 0, y: 20, duration: 0.6 }, '-=0.2')
-
-        // Section 03 — Clean
-        gsap.timeline({
-          scrollTrigger: {
-            trigger: '#section-clean',
-            start: 'top top',
-            end: '+=600',
-            pin: true,
-            scrub: 1,
-            anticipatePin: 1,
-            onEnter:     () => setActiveSection(2),
-            onEnterBack: () => setActiveSection(2),
-          },
-        })
-          .from('.clean-number',  { x: -120, opacity: 0, duration: 1 })
-          .from('.clean-heading', { y: 70,  opacity: 0, duration: 0.9 }, '-=0.5')
-          .from('.clean-content', { opacity: 0, y: 40,  duration: 0.8 }, '-=0.4')
-
-        // Section 04 — Export
-        gsap.timeline({
-          scrollTrigger: {
-            trigger: '#section-export',
-            start: 'top top',
-            end: '+=700',
-            pin: true,
-            scrub: 1,
-            anticipatePin: 1,
-            onEnter:     () => setActiveSection(3),
-            onEnterBack: () => setActiveSection(3),
-          },
-        })
-          .from('.export-number',  { x: -120, opacity: 0, duration: 1 })
-          .from('.export-heading', { y: 70,  opacity: 0, duration: 0.9 }, '-=0.5')
-          .from('.export-content', { opacity: 0, y: 40,  duration: 0.8 }, '-=0.4')
-
-        // Global green shapes parallax (across all scroll)
-        gsap.to('.green-shape', {
-          y: (i) => (i % 2 === 0 ? -150 : 100),
-          ease: 'none',
-          scrollTrigger: {
-            trigger: mainRef.current,
-            start: 'top top',
-            end: 'bottom bottom',
-            scrub: 3,
-          },
+        gsap.from(`${t} .section-subtitle`, {
+          y: 30, opacity: 0, duration: 0.65, delay: 0.15,
+          scrollTrigger: { trigger: t, ...opts },
         })
       })
 
-      // ── MOBILE (no pinning, simple fade-in) ──
-      mm.add('(max-width: 767px)', () => {
-        const mobileSections = [
-          '#section-upload',
-          '#section-configure',
-          '#section-clean',
-          '#section-export',
-        ]
-        mobileSections.forEach((sel) => {
-          gsap.from(sel + ' .section-inner', {
-            opacity: 0,
-            y: 40,
-            duration: 0.8,
-            scrollTrigger: {
-              trigger: sel,
-              start: 'top 80%',
-              toggleActions: 'play none none reverse',
-            },
-          })
-        })
-        gsap.from('.hero-word', {
-          opacity: 0,
-          y: 40,
-          stagger: 0.1,
-          duration: 0.8,
-          delay: 0.3,
-        })
+      // Upload: zone fades up
+      gsap.from('#section-upload .upload-layout', {
+        y: 40, opacity: 0, duration: 0.8, delay: 0.2,
+        scrollTrigger: { trigger: '#section-upload', start: 'top 70%', toggleActions: 'play none none none' },
       })
 
-      return () => mm.revert()
+      // Configure: cards container (framer-motion handles card-level, we animate wrapper)
+      gsap.from('#section-configure .options-wrapper', {
+        y: 44, opacity: 0, duration: 0.9, delay: 0.25,
+        scrollTrigger: { trigger: '#section-configure', start: 'top 68%', toggleActions: 'play none none none' },
+      })
+
+      // Clean: content area
+      gsap.from('#section-clean .clean-inner', {
+        y: 40, opacity: 0, duration: 0.8, delay: 0.2,
+        scrollTrigger: { trigger: '#section-clean', start: 'top 70%', toggleActions: 'play none none none' },
+      })
+
+      // Export: content area
+      gsap.from('#section-export .export-inner', {
+        y: 40, opacity: 0, duration: 0.8, delay: 0.2,
+        scrollTrigger: { trigger: '#section-export', start: 'top 70%', toggleActions: 'play none none none' },
+      })
     },
     { scope: mainRef, dependencies: [loaderDone] }
   )
 
-  // Refresh ScrollTrigger when layout changes (file loaded, preview loaded)
+  // Refresh ScrollTrigger when layout changes
   useEffect(() => {
-    if (loaderDone) {
-      const t = setTimeout(() => ScrollTrigger.refresh(), 100)
-      return () => clearTimeout(t)
-    }
-  }, [fileData, previewData, loaderDone])
+    const t = setTimeout(() => ScrollTrigger.refresh(), 120)
+    return () => clearTimeout(t)
+  }, [fileData, previewData])
 
-  // Fetch preview when cleaning is done
-  useEffect(() => {
-    if (status === 'done' && jobId && !previewData) {
-      getPreview(jobId).then(setPreviewData).catch(console.error)
-    }
-  }, [status, jobId, previewData])
+  // Auto-scroll: upload done → configure (after 1.2s)
+  const handleUploadSuccess = (data) => {
+    setFileData(data)
+    setTimeout(() => scrollTo('section-configure'), 1200)
+  }
 
-  // ── HANDLERS ────────────────────────────────────────
-  const handleUploadSuccess = (data) => setFileData(data)
+  const handleConfigChange = (key, val) =>
+    setConfig((p) => ({ ...p, [key]: val }))
 
-  const handleConfigChange = (key, value) =>
-    setConfig((prev) => ({ ...prev, [key]: value }))
-
+  // Start cleaning → scroll to clean section
   const handleStartCleaning = async () => {
     if (!fileData) return
-    setIsStartingClean(true)
+    setIsStarting(true)
     setCleanError(null)
     try {
       const res = await startCleaning(fileData.file_id, config)
       startJob(res.job_id)
-      // Smooth scroll to clean section
-      document.getElementById('section-clean')?.scrollIntoView({ behavior: 'smooth' })
+      scrollTo('section-clean')
     } catch (err) {
       setCleanError(err?.response?.data?.detail || err.message || 'Failed to start')
     } finally {
-      setIsStartingClean(false)
+      setIsStarting(false)
     }
   }
+
+  // Auto-scroll: clean done → export (after 1.5s)
+  useEffect(() => {
+    if (status === 'done' && jobId && !previewData) {
+      getPreview(jobId).then(setPreviewData).catch(console.error)
+      setTimeout(() => scrollTo('section-export'), 1500)
+    }
+  }, [status, jobId]) // eslint-disable-line
 
   const handleReset = () => {
     reset()
@@ -252,10 +244,15 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const scrollTo = (id) =>
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+  const handleDownload = (fmt) => {
+    if (!jobId) return
+    downloadFile(jobId, fmt)
+  }
 
-  // ── RENDER ──────────────────────────────────────────
+  // Active nav index: SECTION_IDS index 1-4 maps to NAV_LABELS index 0-3
+  const navActive = activeIdx - 1  // -1 for hero (none active)
+
+  // ── RENDER ────────────────────────────────────────────────────
   return (
     <div ref={mainRef}>
       {/* ── LOADER ── */}
@@ -264,112 +261,151 @@ export default function App() {
       {/* ── CURSOR ── */}
       <CustomCursor />
 
-      {/* ── VERTICAL NAV ── */}
-      <VerticalNav activeIndex={activeSection} />
-
-      {/* ── FLOATING STATS ── */}
-      <FloatingStats fileData={fileData} progress={progress} status={status} />
-
-      {/* ── NAVBAR ── */}
+      {/* ── FIXED: Top navbar ── */}
       <nav className="purixa-nav">
-        <div className="nav-wordmark">Purixa</div>
+        <span className="nav-wordmark">Purixa</span>
         <div className="nav-links">
-          <a href="https://github.com/ARCHIT-100069/Purixa" target="_blank" rel="noreferrer">
-            GitHub
-          </a>
-          <a href="https://purixa-backend-production.up.railway.app/docs" target="_blank" rel="noreferrer">
-            API Docs
-          </a>
+          <a href="https://github.com/ARCHIT-100069/Purixa" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://purixa-backend-production.up.railway.app/docs" target="_blank" rel="noreferrer">API Docs</a>
         </div>
       </nav>
 
-      {/* ═══════════════════════════════════════════════
-          HERO SECTION
-      ═══════════════════════════════════════════════ */}
-      <section id="hero" className="hero-section">
-        {/* Metadata labels */}
-        <span className="hero-meta hero-meta-tl">28.6441° N, 77.3910° E</span>
-        <span className="hero-meta hero-meta-tr">100% AUTOMATED</span>
-        <span className="hero-meta hero-meta-br">PURIXA / DATA CLEANING</span>
+      {/* ── FIXED: Left vertical nav ── */}
+      <nav className="vertical-nav" aria-label="Steps">
+        {NAV_LABELS.map((label, i) => (
+          <span key={label} style={{ display: 'contents' }}>
+            {i > 0 && <span className="vn-sep" />}
+            <span
+              className={`vn-item${navActive === i ? ' active' : ''}`}
+              onClick={() => scrollTo(SECTION_IDS[i + 1])}
+              style={{ pointerEvents: 'auto', cursor: 'pointer' }}
+            >
+              {label}
+            </span>
+          </span>
+        ))}
+      </nav>
 
+      {/* ── FIXED: Corner stats ── */}
+      {/* Top-left: coordinates */}
+      <div className="corner-stat cs-tl hero-meta-item">
+        <span className="cs-label">LOCATION</span>
+        <span className="cs-value">28.6441° N</span>
+        <span className="cs-value">77.3910° E</span>
+      </div>
+      {/* Top-right: file stats */}
+      <div className="corner-stat cs-tr hero-meta-item">
+        <span className="cs-label">ROWS</span>
+        <span className="cs-value">{fileData ? fileData.rows.toLocaleString() : '—'}</span>
+        <span className="cs-label" style={{ marginTop: 5 }}>COLS</span>
+        <span className="cs-value">{fileData ? fileData.cols : '—'}</span>
+      </div>
+      {/* Bottom-right: time */}
+      <div className="corner-stat cs-br hero-meta-item">
+        <span className="cs-label">LOCAL TIME</span>
+        <span className="cs-value"><LiveClock /></span>
+        {status && status !== 'idle' && (
+          <>
+            <span className="cs-label" style={{ marginTop: 5 }}>PIPELINE</span>
+            <span className={`cs-value${status === 'done' ? ' accent' : ''}`}>
+              {status === 'running' ? `${progress}%` : status.toUpperCase()}
+            </span>
+          </>
+        )}
+      </div>
+      {/* Bottom-left: version */}
+      <div className="corner-stat cs-bl hero-meta-item">
+        <span className="cs-label">PURIXA</span>
+        <span className="cs-value">v1.0.0</span>
+      </div>
+
+      {/* ════════════════════════════════════════════════
+          SECTION 1 — HERO
+      ════════════════════════════════════════════════ */}
+      <section id="section-hero" className="scroll-section hero-section" style={{ minHeight: '100vh' }}>
         {/* Green shapes */}
-        <div className="green-shape green-shape-tri shape-1" />
-        <div className="green-shape shape-2" />
-        <div className="green-shape shape-3" />
+        <div className="green-shape tri-shape shape-tri" style={{ bottom: '22%', left: '-8px' }} />
+        <div className="green-shape diamond-shape shape-dia" style={{ top: '28%', right: '40%' }} />
 
-        {/* Hero copy */}
-        <div className="hero-content">
+        {/* Hero content */}
+        <div className="section-body hero-content" style={{ maxWidth: 680 }}>
           <div className="hero-headline">
-            <div className="hero-line">
-              <div className="hero-word-wrap"><span className="hero-word">YOUR</span></div>
-              <div className="hero-word-wrap"><span className="hero-word">&nbsp;DATA.</span></div>
+            <div className="hero-word-wrap">
+              <span className="hero-word headline-solid">YOUR DATA.</span>
             </div>
-            <div className="hero-line">
-              <div className="hero-word-wrap">
-                <span className="hero-word hero-word-accent">CLEANED.</span>
-              </div>
+            <div className="hero-word-wrap">
+              <span className="hero-word headline-outline">CLEANED.</span>
             </div>
           </div>
 
-          <p className="hero-subtitle">Upload. Configure. Export. Done.</p>
+          <p className="hero-sub">Upload. Configure. Export. Done.</p>
 
-          <a href="#section-upload" className="hero-cta" id="hero-cta-btn">
+          <a
+            href="#section-upload"
+            id="hero-cta"
+            className="hero-cta"
+            onClick={(e) => { e.preventDefault(); scrollTo('section-upload') }}
+          >
             Start Cleaning <span aria-hidden>→</span>
           </a>
+
+          <div className="scroll-hint">
+            <span>SCROLL DOWN</span>
+            <div className="scroll-hint-line" />
+          </div>
         </div>
 
-        {/* SVG wireframe */}
+        {/* Animated canvas wireframe */}
         <DataWireframe />
-
-        {/* Scroll hint */}
-        <div className="hero-scroll-hint">
-          <span>SCROLL</span>
-          <div className="scroll-line" />
-        </div>
 
         <div className="section-rule" />
       </section>
 
-      {/* ═══════════════════════════════════════════════
-          01 — UPLOAD
-      ═══════════════════════════════════════════════ */}
-      <section id="section-upload" className="pinned-section">
-        <div className="section-number-bg upload-number">01</div>
+      {/* ════════════════════════════════════════════════
+          SECTION 2 — UPLOAD
+      ════════════════════════════════════════════════ */}
+      <section id="section-upload" className="scroll-section">
+        <div className="section-bg-num">01</div>
 
-        <div className="section-inner">
+        <div className="section-body">
           <span className="section-tag">FILE INGESTION</span>
 
-          <h2 className="section-title upload-heading">
-            Drop your<br />dataset.
-          </h2>
+          <div className="section-headline">
+            <span className="headline-solid">DROP YOUR</span>
+            <span className="headline-solid">DATASET.</span>
+          </div>
+
           <p className="section-subtitle">
             CSV · JSON · TSV — up to 500MB. Large files use chunked streaming.
           </p>
 
-          <div className="upload-grid">
-            {/* Left: drop zone */}
-            <div className="upload-zone">
+          <div className="file-badges">
+            {['.csv', '.json', '.tsv'].map((ext) => (
+              <span key={ext} className="file-badge">{ext}</span>
+            ))}
+          </div>
+
+          <div className="upload-layout">
+            {/* Drop zone */}
+            <div id="upload-drop-zone">
               <DropZone onUploadSuccess={handleUploadSuccess} />
             </div>
 
-            {/* Right: file stats + CTA */}
+            {/* Right panel */}
             {fileData ? (
-              <div className="upload-meta upload-stats-panel">
+              <div>
                 <FileStats fileData={fileData} />
                 <button
-                  id="configure-scroll-btn"
-                  className="mantis-cta"
+                  id="scroll-to-configure-btn"
+                  className="pill-cta"
+                  style={{ marginTop: 24 }}
                   onClick={() => scrollTo('section-configure')}
                 >
-                  Configure Operations →
+                  Set operations →
                 </button>
               </div>
             ) : (
-              <div className="upload-meta" style={{ display: 'flex', alignItems: 'center' }}>
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--color-text-muted)', letterSpacing: '0.1em' }}>
-                  AWAITING FILE INPUT
-                </p>
-              </div>
+              <p className="await-label">AWAITING FILE INPUT</p>
             )}
           </div>
         </div>
@@ -377,41 +413,39 @@ export default function App() {
         <div className="section-rule" />
       </section>
 
-      {/* ═══════════════════════════════════════════════
-          02 — CONFIGURE
-      ═══════════════════════════════════════════════ */}
-      <section id="section-configure" className="pinned-section">
-        <div className="section-number-bg configure-number">02</div>
+      {/* ════════════════════════════════════════════════
+          SECTION 3 — CONFIGURE
+      ════════════════════════════════════════════════ */}
+      <section id="section-configure" className="scroll-section">
+        {!fileData && <LockOverlay message="↑ Upload a file first" />}
+        <div className="section-bg-num">02</div>
 
-        {!fileData && (
-          <div className="section-lock-overlay">
-            <p>↑ Upload a file first</p>
-          </div>
-        )}
-
-        <div className="section-inner">
+        <div className="section-body">
           <span className="section-tag">OPERATIONS</span>
 
-          <h2 className="section-title configure-heading">
-            Configure<br />operations.
-          </h2>
+          <div className="section-headline">
+            <span className="headline-solid">SET YOUR</span>
+            <span className="headline-outline">RULES.</span>
+          </div>
+
           <p className="section-subtitle">
-            Toggle the cleaning steps to apply to your dataset.
+            Choose what gets cleaned. Toggle what you need.
           </p>
 
-          <div className="options-grid-wrapper">
+          <div className="options-wrapper">
             <CleaningOptions config={config} onChange={handleConfigChange} />
           </div>
 
-          <div className="configure-actions" style={{ marginTop: 32 }}>
+          <div style={{ marginTop: 32 }}>
             {cleanError && <p className="error-text">{cleanError}</p>}
             <button
-              id="start-cleaning-btn"
-              className="mantis-cta mantis-cta-primary"
+              id="run-pipeline-btn"
+              className="pill-cta pill-cta-solid"
               onClick={handleStartCleaning}
-              disabled={!fileData || isStartingClean}
+              disabled={!fileData || isStarting}
+              style={{ marginTop: 16, border: 'none' }}
             >
-              {isStartingClean ? 'Starting pipeline...' : 'Run Pipeline →'}
+              {isStarting ? 'Starting...' : 'Run Purixa →'}
             </button>
           </div>
         </div>
@@ -419,125 +453,165 @@ export default function App() {
         <div className="section-rule" />
       </section>
 
-      {/* ═══════════════════════════════════════════════
-          03 — CLEAN
-      ═══════════════════════════════════════════════ */}
-      <section id="section-clean" className="pinned-section">
-        <div className="section-number-bg clean-number">03</div>
+      {/* ════════════════════════════════════════════════
+          SECTION 4 — CLEAN
+      ════════════════════════════════════════════════ */}
+      <section id="section-clean" className="scroll-section">
+        {!jobId && <LockOverlay message="↑ Configure and run the pipeline first" />}
+        <div className="section-bg-num">03</div>
 
-        {!jobId && (
-          <div className="section-lock-overlay">
-            <p>↑ Run the pipeline first</p>
-          </div>
-        )}
-
-        <div className="section-inner clean-content">
+        <div className="section-body">
           <span className="section-tag">PROCESSING</span>
 
-          <h2 className="section-title clean-heading">
-            {status === 'done' ? 'Complete.' : status === 'error' ? 'Error.' : 'Cleaning.'}
-          </h2>
-          <p className="section-subtitle">
-            {status === 'done'
-              ? `${(stats?.rows_after || 0).toLocaleString()} rows in output`
-              : 'Processing your dataset...'}
-          </p>
-
-          <div className="clean-layout">
-            <div>
-              <ProgressBar progress={progress} statusText={lastLog} />
-            </div>
-            <div>
-              <CleaningLog log={log} />
-            </div>
+          <div className="section-headline">
+            <span className="headline-solid">
+              {status === 'done'
+                ? 'PIPELINE'
+                : status === 'error'
+                ? 'PIPELINE'
+                : 'RUNNING'}
+            </span>
+            <span className={status === 'done' ? 'headline-outline' : 'headline-solid'}>
+              {status === 'done'
+                ? 'COMPLETE.'
+                : status === 'error'
+                ? 'FAILED.'
+                : 'PIPELINE.'}
+            </span>
           </div>
 
-          {status === 'error' && (
-            <p className="error-text" style={{ marginTop: 16 }}>{error || 'Unknown error'}</p>
-          )}
+          <p className="section-subtitle">
+            {status === 'done'
+              ? `${(stats?.rows_after ?? 0).toLocaleString()} rows in output`
+              : 'Your dataset is being processed...'}
+          </p>
 
-          {status === 'done' && (
-            <button
-              id="go-to-export-btn"
-              className="mantis-cta"
-              onClick={() => scrollTo('section-export')}
-            >
-              View Results →
-            </button>
-          )}
+          <div className="clean-inner">
+            {/* Custom thin progress bar */}
+            <div className="progress-full">
+              <div
+                className="progress-fill"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            <div className="clean-layout">
+              <ProgressBar progress={progress} statusText={lastLog} />
+              <CleaningLog log={log} />
+            </div>
+
+            {/* Before/after stat cards */}
+            {status === 'done' && stats && (
+              <div className="clean-stat-grid">
+                <StatCard label="ROWS BEFORE"         value={stats.rows_before} />
+                <StatCard label="ROWS AFTER"          value={stats.rows_after} />
+                <StatCard label="DUPLICATES REMOVED"  value={stats.duplicates_removed} />
+                <StatCard label="MISSING FILLED"      value={stats.missing_filled} />
+                <StatCard label="OUTLIERS REMOVED"    value={stats.outliers_removed} />
+              </div>
+            )}
+
+            {status === 'error' && (
+              <p className="error-text" style={{ marginTop: 16 }}>{error || 'Unknown error'}</p>
+            )}
+
+            {status === 'done' && (
+              <button
+                id="view-results-btn"
+                className="pill-cta"
+                style={{ marginTop: 28 }}
+                onClick={() => scrollTo('section-export')}
+              >
+                View Results →
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="section-rule" />
       </section>
 
-      {/* ═══════════════════════════════════════════════
-          04 — EXPORT
-      ═══════════════════════════════════════════════ */}
-      <section id="section-export" className="pinned-section">
-        <div className="section-number-bg export-number">04</div>
+      {/* ════════════════════════════════════════════════
+          SECTION 5 — EXPORT
+      ════════════════════════════════════════════════ */}
+      <section id="section-export" className="scroll-section" style={{ minHeight: '100vh' }}>
+        {status !== 'done' && <LockOverlay message="↑ Complete the cleaning pipeline first" />}
+        <div className="section-bg-num">04</div>
 
-        {status !== 'done' && (
-          <div className="section-lock-overlay">
-            <p>↑ Complete cleaning first</p>
-          </div>
-        )}
-
-        <div className="section-inner export-content">
+        <div className="section-body" style={{ paddingBottom: 100 }}>
           <span className="section-tag">EXPORT</span>
 
-          <h2 className="section-title export-heading">
-            Download<br />results.
-          </h2>
+          <div className="section-headline">
+            <span className="headline-solid">YOUR DATA</span>
+            <span className="headline-outline">IS READY.</span>
+          </div>
 
-          <div className="export-layout">
+          <p className="section-subtitle">
+            Download your cleaned dataset in your preferred format.
+          </p>
+
+          <div className="export-inner">
+            {/* Before/after summary */}
             {previewData && (
               <StatsReport stats={previewData.stats || stats} summary={previewData.summary} />
             )}
 
-            <ExportPanel jobId={jobId} stats={previewData?.stats || stats} />
+            {/* Large download buttons */}
+            <div className="download-row">
+              <button
+                id="download-csv-btn"
+                className="dl-btn-primary"
+                onClick={() => handleDownload('csv')}
+                disabled={!jobId}
+              >
+                ↓ DOWNLOAD CSV
+              </button>
+              <button
+                id="download-json-btn"
+                className="dl-btn-outline"
+                onClick={() => handleDownload('json')}
+                disabled={!jobId}
+              >
+                ↓ DOWNLOAD JSON
+              </button>
+            </div>
 
+            {/* Data preview table */}
             {previewData && (
-              <div>
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', letterSpacing: '0.2em', color: 'var(--color-text-muted)', marginBottom: 12 }}>
-                  DATA PREVIEW — FIRST {previewData.rows?.length} ROWS
-                </p>
+              <>
+                <span className="preview-label">
+                  DATA PREVIEW — FIRST {previewData.rows?.length} ROWS OF {previewData.total_rows?.toLocaleString()}
+                </span>
                 <DataPreview
                   columns={previewData.columns}
                   rows={previewData.rows}
                   totalRows={previewData.total_rows}
                   columnTypes={previewData.column_types}
                 />
-              </div>
+              </>
             )}
 
-            <div>
-              <button id="start-over-btn" className="reset-btn" onClick={handleReset}>
-                ↺ Start over with a new file
-              </button>
-            </div>
+            <button id="clean-another-btn" className="restart-link" onClick={handleReset}>
+              ↺ Clean another file
+            </button>
           </div>
         </div>
 
         <div className="section-rule" />
       </section>
 
-      {/* ═══════════════════════════════════════════════
-          FOOTER
-      ═══════════════════════════════════════════════ */}
+      {/* ════════════════════════════════════════════════
+          SECTION 6 — FOOTER
+      ════════════════════════════════════════════════ */}
       <footer className="purixa-footer">
-        <div className="footer-wordmark">Purixa</div>
-        <p className="footer-tagline">Data Cleaning, Refined.</p>
-        <p className="footer-meta">
-          28.6441° N, 77.3910° E &nbsp;·&nbsp; 2026 &nbsp;·&nbsp;{' '}
-          <a
-            href="https://github.com/ARCHIT-100069/Purixa"
-            target="_blank"
-            rel="noreferrer"
-            style={{ color: 'inherit', textDecoration: 'none' }}
-          >
-            github.com/ARCHIT-100069/Purixa
-          </a>
-        </p>
+        <div className="footer-left">
+          PURIXA
+          <span>v1.0.0</span>
+        </div>
+        <div className="footer-center">Data cleaning, refined.</div>
+        <div className="footer-right">
+          <LiveClock />
+        </div>
       </footer>
     </div>
   )
