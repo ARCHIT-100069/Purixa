@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 // Visual components (no GSAP)
 import Loader        from '../components/Loader'
 import SplashCursor   from '../components/SplashCursor'
-import HeroCrystal   from '../components/HeroCrystal'
+import DataWireframe from '../components/DataWireframe'
 
 // Functional components (logic unchanged)
 import DropZone        from '../components/DropZone'
@@ -290,8 +290,8 @@ export default function App() {
         <div className="green-shape tri-shape" style={{ bottom: '22%', left: '-6px' }} />
         <div className="green-shape diamond-shape" style={{ top: '30%', right: '42%' }} />
 
-        {/* Emerald crystal hero asset */}
-        <HeroCrystal />
+        {/* Animated wireframe graph */}
+        <DataWireframe />
 
         {/* Hero copy — CSS animations trigger via .app-ready class */}
         <div className="hero-content">
